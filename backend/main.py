@@ -9,7 +9,7 @@ import httpx
 from datetime import datetime
 import os
 
-app = FastAPI(title="Luxe Jewelry Store API", version="1.0.1")
+app = FastAPI(title="Luxe Jewelry Store API", version="1.1.0")
 
 # Enable CORS for React frontend
 app.add_middleware(
@@ -156,7 +156,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "backend",
-        "version": "1.0.1",
+        "version": "1.1.0",
         "timestamp": datetime.now().isoformat(),
         "uptime": "running",
         "database": "connected"
@@ -316,6 +316,23 @@ async def get_categories():
     """Get all product categories"""
     categories = list(set(p["category"] for p in products_db))
     return {"categories": categories}
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Get store statistics for dashboard"""
+    total_products = len(products_db)
+    categories = list(set(p["category"] for p in products_db))
+    total_value = sum(p["price"] for p in products_db)
+    
+    return {
+        "total_products": total_products,
+        "total_categories": len(categories),
+        "categories": categories,
+        "total_inventory_value": round(total_value, 2),
+        "average_price": round(total_value / total_products, 2) if total_products > 0 else 0,
+        "status": "active"
+    }
 
 if __name__ == "__main__":
     import uvicorn

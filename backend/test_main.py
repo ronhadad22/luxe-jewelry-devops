@@ -18,7 +18,7 @@ def test_health_check():
     data = response.json()
     assert data["status"] == "healthy"
     assert data["service"] == "backend"
-    assert data["version"] == "1.0.1"
+    assert data["version"] == "1.1.0"
     assert "timestamp" in data
     assert data["uptime"] == "running"
     assert data["database"] == "connected"
@@ -75,3 +75,22 @@ def test_get_categories():
     assert "categories" in data
     assert isinstance(data["categories"], list)
     assert len(data["categories"]) > 0
+
+
+def test_get_stats():
+    """Test getting store statistics"""
+    response = client.get("/api/stats")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_products" in data
+    assert "total_categories" in data
+    assert "categories" in data
+    assert "total_inventory_value" in data
+    assert "average_price" in data
+    assert "status" in data
+    assert data["status"] == "active"
+    assert isinstance(data["total_products"], int)
+    assert isinstance(data["total_categories"], int)
+    assert isinstance(data["categories"], list)
+    assert data["total_products"] > 0
+    assert data["total_categories"] > 0
