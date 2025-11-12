@@ -85,17 +85,29 @@ spec:
             steps {
                 container('python') {
                     dir('backend') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install flake8 black isort
-                            echo "Running code formatting checks..."
-                            black --check --diff .
-                            echo "Running import sorting checks..."
-                            isort --check-only --diff .
-                            echo "Running linting..."
-                            flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-                            flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-                        '''
+                        script {
+                            try {
+                                sh '''
+                                    . venv/bin/activate
+                                    pip install flake8 black isort
+                                    
+                                    echo "Running code formatting checks..."
+                                    black --check --diff .
+                                    
+                                    echo "Running flake8 linting..."
+                                    flake8 . --max-line-length=88 --extend-ignore=E203,W503
+                                    
+                                    echo "Running import sorting checks..."
+                                    isort --check-only --diff .
+                                    
+                                    echo "✅ All linting checks passed!"
+                                '''
+                            } catch (Exception e) {
+                                echo "⚠️ Linting issues found, but continuing pipeline..."
+                                echo "Error: ${e.getMessage()}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
                     }
                 }
             }

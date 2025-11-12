@@ -185,6 +185,7 @@ async def get_products(category: Optional[str] = None):
         return filtered_products
     return products_db
 
+
 @app.get("/api/products/{product_id}", response_model=Product)
 async def get_product(product_id: int):
     """Get a specific product by ID"""
@@ -193,18 +194,19 @@ async def get_product(product_id: int):
         raise HTTPException(status_code=404, detail="Product not found")
     return product
 
+
 @app.post("/api/cart/{session_id}/add")
 async def add_to_cart(
-    session_id: str, 
+    session_id: str,
     item: CartItemRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Add item to cart for authenticated or anonymous user"""
     # Find the product
     product = next((p for p in products_db if p["id"] == item.product_id), None)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
     # Determine which cart to use
     if current_user:
         user_id = current_user["id"]
@@ -215,11 +217,13 @@ async def add_to_cart(
         if session_id not in carts_db:
             carts_db[session_id] = []
         cart = carts_db[session_id]
-    
+
     # Check if item already exists in cart
-    existing_item = next((cart_item for cart_item in cart 
-                         if cart_item["product_id"] == item.product_id), None)
-    
+    existing_item = next(
+        (cart_item for cart_item in cart if cart_item["product_id"] == item.product_id),
+        None,
+    )
+
     if existing_item:
         # Update quantity if item exists
         existing_item["quantity"] += item.quantity
@@ -229,11 +233,12 @@ async def add_to_cart(
             "id": str(uuid.uuid4()),
             "product_id": item.product_id,
             "quantity": item.quantity,
-            "added_at": datetime.now().isoformat()
+            "added_at": datetime.now().isoformat(),
         }
         cart.append(cart_item)
-    
+
     return {"message": "Item added to cart", "cart_items": len(cart)}
+
 
 @app.get("/api/cart", response_model=List[CartItem])
 async def get_cart(
@@ -249,11 +254,10 @@ async def get_cart(
         # Return session-based cart for anonymous users
         return carts_db.get(session_id, [])
 
+
 @app.delete("/api/cart/{session_id}/item/{item_id}")
 async def remove_from_cart(
-    session_id: str, 
-    item_id: str,
-    current_user: dict = Depends(get_current_user)
+    session_id: str, item_id: str, current_user: dict = Depends(get_current_user)
 ):
     """Remove item from cart for authenticated or anonymous user"""
     # Determine which cart to use
@@ -266,23 +270,24 @@ async def remove_from_cart(
         if session_id not in carts_db:
             raise HTTPException(status_code=404, detail="Cart not found")
         cart = carts_db[session_id]
-    
+
     # Find and remove the item
     item_to_remove = next((item for item in cart if item["id"] == item_id), None)
-    
+
     if not item_to_remove:
         raise HTTPException(status_code=404, detail="Item not found in cart")
-    
+
     cart.remove(item_to_remove)
-    
+
     return {"message": "Item removed from cart", "cart_items": len(cart)}
+
 
 @app.put("/api/cart/{session_id}/item/{item_id}")
 async def update_cart_item(
-    session_id: str, 
-    item_id: str, 
+    session_id: str,
+    item_id: str,
     quantity: int,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Update cart item quantity for authenticated or anonymous user"""
     # Determine which cart to use
@@ -295,13 +300,13 @@ async def update_cart_item(
         if session_id not in carts_db:
             raise HTTPException(status_code=404, detail="Cart not found")
         cart = carts_db[session_id]
-    
+
     # Find the item
     item = next((item for item in cart if item["id"] == item_id), None)
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Item not found in cart")
-    
+
     if quantity <= 0:
         # Remove item if quantity is 0 or negative
         cart.remove(item)
@@ -310,11 +315,9 @@ async def update_cart_item(
         item["quantity"] = quantity
         return {"message": "Item quantity updated"}
 
+
 @app.delete("/api/cart/{session_id}")
-async def clear_cart(
-    session_id: str,
-    current_user: dict = Depends(get_current_user)
-):
+async def clear_cart(session_id: str, current_user: dict = Depends(get_current_user)):
     """Clear entire cart for authenticated or anonymous user"""
     # Determine which cart to use
     if current_user:
@@ -325,6 +328,7 @@ async def clear_cart(
         if session_id in carts_db:
             carts_db[session_id] = []
     return {"message": "Cart cleared"}
+
 
 @app.get("/api/categories")
 async def get_categories():
@@ -339,17 +343,21 @@ async def get_stats():
     total_products = len(products_db)
     categories = list(set(p["category"] for p in products_db))
     total_value = sum(p["price"] for p in products_db)
-    
+
     return {
         "total_products": total_products,
         "total_categories": len(categories),
         "categories": categories,
         "total_inventory_value": round(total_value, 2),
-        "average_price": round(total_value / total_products, 2) if total_products > 0 else 0,
+        "average_price": (
+            round(total_value / total_products, 2) if total_products > 0 else 0
+        ),
         "status": "active",
-        "last_updated": datetime.now().isoformat()
+        "last_updated": datetime.now().isoformat(),
     }
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
