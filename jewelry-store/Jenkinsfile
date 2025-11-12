@@ -18,9 +18,9 @@ spec:
     image: docker:24.0.6-dind
     securityContext:
       privileged: true
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
   - name: aws-cli
     image: amazon/aws-cli:latest
     command:
@@ -188,9 +188,11 @@ spec:
                 container('docker') {
                     dir('jewelry-store') {
                         sh '''
+                            echo "Waiting for Docker daemon to be ready..."
+                            sleep 10
                             echo "Building Docker image..."
                             docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
-                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest .
+                            docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
                             echo "Docker image built successfully"
                         '''
                     }
@@ -222,10 +224,8 @@ spec:
     
     post {
         always {
-            dir('jewelry-store') {
-                archiveArtifacts artifacts: 'build/**, **/*-report.json, **/junit.xml, **/coverage/**', allowEmptyArchive: true
-                cleanWs()
-            }
+            archiveArtifacts artifacts: 'jewelry-store/build/**, jewelry-store/**/*-report.json, jewelry-store/**/junit.xml, jewelry-store/**/coverage/**', allowEmptyArchive: true
+            cleanWs()
         }
         success {
             echo "✅ Jewelry Store Frontend CI pipeline completed successfully!"

@@ -18,9 +18,9 @@ spec:
     image: docker:24.0.6-dind
     securityContext:
       privileged: true
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
   - name: aws-cli
     image: amazon/aws-cli:latest
     command:
@@ -179,9 +179,11 @@ spec:
                 container('docker') {
                     dir('backend') {
                         sh '''
+                            echo "Waiting for Docker daemon to be ready..."
+                            sleep 10
                             echo "Building Docker image..."
                             docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
-                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest .
+                            docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
                             echo "Docker image built successfully"
                         '''
                     }
@@ -213,10 +215,8 @@ spec:
     
     post {
         always {
-            dir('backend') {
-                archiveArtifacts artifacts: '**/*-report.json, **/*-results.xml, **/htmlcov/**', allowEmptyArchive: true
-                cleanWs()
-            }
+            archiveArtifacts artifacts: 'backend/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', allowEmptyArchive: true
+            cleanWs()
         }
         success {
             echo "✅ Backend Service CI pipeline completed successfully!"
