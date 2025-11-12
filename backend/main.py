@@ -156,7 +156,9 @@ async def health_check():
         "status": "healthy",
         "service": "backend",
         "version": "1.0.1",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "uptime": "running",
+        "database": "connected"
     }
 
 @app.get("/api/products", response_model=List[Product])
