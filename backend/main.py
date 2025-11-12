@@ -9,7 +9,7 @@ import httpx
 from datetime import datetime
 import os
 
-app = FastAPI(title="Luxe Jewelry Store API", version="1.0.0")
+app = FastAPI(title="Luxe Jewelry Store API", version="1.0.1")
 
 # Enable CORS for React frontend
 app.add_middleware(
@@ -148,6 +148,16 @@ user_carts_db = {}
 @app.get("/")
 async def root():
     return {"message": "Welcome to Luxe Jewelry Store API"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and CI/CD"""
+    return {
+        "status": "healthy",
+        "service": "backend",
+        "version": "1.0.1",
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.get("/api/products", response_model=List[Product])
 async def get_products(category: Optional[str] = None):
