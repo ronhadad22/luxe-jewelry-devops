@@ -18,9 +18,6 @@ spec:
       limits:
         memory: "512Mi" 
         cpu: "500m"
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
   - name: docker
     image: docker:24.0.6-dind
     securityContext:
@@ -28,6 +25,8 @@ spec:
     env:
     - name: DOCKER_TLS_CERTDIR
       value: ""
+    - name: DOCKER_HOST
+      value: "tcp://localhost:2375"
     resources:
       requests:
         memory: "512Mi"
@@ -35,9 +34,6 @@ spec:
       limits:
         memory: "1Gi"
         cpu: "1000m"
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
   - name: aws-cli
     image: amazon/aws-cli:latest
     command:
@@ -50,13 +46,6 @@ spec:
       limits:
         memory: "256Mi"
         cpu: "200m"
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
-  volumes:
-  - name: docker-sock
-    hostPath:
-      path: /var/run/docker.sock
 """
         }
     }
@@ -203,8 +192,11 @@ spec:
                 container('docker') {
                     dir('backend') {
                         sh '''
+                            export DOCKER_HOST=tcp://localhost:2375
                             echo "Waiting for Docker daemon to be ready..."
-                            sleep 10
+                            sleep 15
+                            echo "Testing Docker connection..."
+                            docker version
                             echo "Building Docker image..."
                             docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
                             docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
@@ -221,6 +213,7 @@ spec:
                     dir('backend') {
                         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                             sh '''
+                                export DOCKER_HOST=tcp://localhost:2375
                                 echo "Logging into ECR..."
                                 aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                                 
