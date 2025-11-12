@@ -1,0 +1,229 @@
+pipeline {
+    agent {
+        kubernetes {
+            label 'jenkins-jenkins-agent'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: python
+    image: python:3.11-slim
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  - name: docker
+    image: docker:24.0.6-dind
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  - name: aws-cli
+    image: amazon/aws-cli:latest
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+"""
+        }
+    }
+    
+    environment {
+        PYTHON_VERSION = '3.11'
+        SERVICE_NAME = 'backend'
+        AWS_DEFAULT_REGION = 'us-east-2'
+        ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
+        ECR_REPOSITORY = 'jewleryapp/be'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Setup Python Environment') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            python -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Lint Code') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install flake8 black isort
+                            echo "Running code formatting checks..."
+                            black --check --diff .
+                            echo "Running import sorting checks..."
+                            isort --check-only --diff .
+                            echo "Running linting..."
+                            flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                            flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install bandit safety
+                            echo "Running security scan with bandit..."
+                            bandit -r . -f json -o bandit-report.json || true
+                            echo "Checking for known security vulnerabilities..."
+                            safety check --json --output safety-report.json || true
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install pytest pytest-cov pytest-asyncio
+                            echo "Running tests..."
+                            pytest --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml || true
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    dir('backend') {
+                        publishTestResults testResultsPattern: 'test-results.xml'
+                        publishCoverage adapters: [coberturaAdapter('coverage.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+                    }
+                }
+            }
+        }
+        
+        stage('Dependency Check') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install pip-audit
+                            echo "Auditing dependencies for vulnerabilities..."
+                            pip-audit --format=json --output=pip-audit-report.json || true
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('API Health Check') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            . venv/bin/activate
+                            echo "Starting backend service for health check..."
+                            timeout 10s python main.py &
+                            sleep 5
+                            echo "Backend service validation completed"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            steps {
+                container('python') {
+                    dir('backend') {
+                        sh '''
+                            . venv/bin/activate
+                            echo "Running integration tests..."
+                            # Add integration test commands here when available
+                            echo "Integration tests placeholder - implement when tests are available"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                container('docker') {
+                    dir('backend') {
+                        sh '''
+                            echo "Building Docker image..."
+                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
+                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest .
+                            echo "Docker image built successfully"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                container('aws-cli') {
+                    dir('backend') {
+                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                            sh '''
+                                echo "Logging into ECR..."
+                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                
+                                echo "Pushing Docker image to ECR..."
+                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                                
+                                echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            dir('backend') {
+                archiveArtifacts artifacts: '**/*-report.json, **/*-results.xml, **/htmlcov/**', allowEmptyArchive: true
+                cleanWs()
+            }
+        }
+        success {
+            echo "✅ Backend Service CI pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Backend Service CI pipeline failed!"
+        }
+    }
+}

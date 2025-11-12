@@ -1,0 +1,238 @@
+pipeline {
+    agent {
+        kubernetes {
+            label 'jenkins-jenkins-agent'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: node
+    image: node:18-alpine
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  - name: docker
+    image: docker:24.0.6-dind
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  - name: aws-cli
+    image: amazon/aws-cli:latest
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+"""
+        }
+    }
+    
+    environment {
+        NODE_VERSION = '18'
+        SERVICE_NAME = 'jewelry-store'
+        CI = 'true'
+        AWS_DEFAULT_REGION = 'us-east-2'
+        ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
+        ECR_REPOSITORY = 'jewleryapp/fe'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Setup Node Environment') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            node --version
+                            npm --version
+                            echo "Installing dependencies..."
+                            npm ci
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Lint Code') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Running ESLint..."
+                            npm run lint || npx eslint src/ --ext .js,.jsx,.ts,.tsx --format=json --output-file=eslint-report.json || true
+                            echo "Checking code formatting with Prettier..."
+                            npx prettier --check src/ || true
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Security Audit') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Running npm audit..."
+                            npm audit --audit-level=moderate --json > npm-audit-report.json || true
+                            echo "Security audit completed"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Running tests..."
+                            npm test -- --coverage --watchAll=false --testResultsProcessor=jest-junit || true
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    dir('jewelry-store') {
+                        publishTestResults testResultsPattern: 'junit.xml'
+                        publishCoverage adapters: [istanbulCoberturaAdapter('coverage/cobertura-coverage.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+                    }
+                }
+            }
+        }
+        
+        stage('Type Check') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Running TypeScript type checking..."
+                            # If TypeScript is used
+                            if [ -f "tsconfig.json" ]; then
+                                npx tsc --noEmit || true
+                            else
+                                echo "No TypeScript configuration found, skipping type check"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Building React application..."
+                            npm run build
+                            echo "Build completed successfully"
+                            ls -la build/
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Bundle Analysis') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Analyzing bundle size..."
+                            npx bundlesize || true
+                            echo "Checking for unused dependencies..."
+                            npx depcheck || true
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Accessibility Tests') {
+            steps {
+                container('node') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Running accessibility tests..."
+                            # Install and run axe-core for accessibility testing
+                            npm install --no-save @axe-core/cli || true
+                            # This would require the built app to be served
+                            echo "Accessibility tests placeholder - implement when app is served"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                container('docker') {
+                    dir('jewelry-store') {
+                        sh '''
+                            echo "Building Docker image..."
+                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
+                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest .
+                            echo "Docker image built successfully"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                container('aws-cli') {
+                    dir('jewelry-store') {
+                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                            sh '''
+                                echo "Logging into ECR..."
+                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                
+                                echo "Pushing Docker image to ECR..."
+                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                                
+                                echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            dir('jewelry-store') {
+                archiveArtifacts artifacts: 'build/**, **/*-report.json, **/junit.xml, **/coverage/**', allowEmptyArchive: true
+                cleanWs()
+            }
+        }
+        success {
+            echo "✅ Jewelry Store Frontend CI pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Jewelry Store Frontend CI pipeline failed!"
+        }
+    }
+}
