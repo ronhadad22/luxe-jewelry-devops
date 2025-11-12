@@ -332,7 +332,8 @@ async def get_stats():
         "categories": categories,
         "total_inventory_value": round(total_value, 2),
         "average_price": round(total_value / total_products, 2) if total_products > 0 else 0,
-        "status": "active"
+        "status": "active",
+        "last_updated": datetime.now().isoformat()
     }
 
 if __name__ == "__main__":

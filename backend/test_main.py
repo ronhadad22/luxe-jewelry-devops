@@ -90,6 +90,7 @@ def test_get_stats():
     assert "average_price" in data
     assert "status" in data
     assert data["status"] == "active"
+    assert "last_updated" in data
     assert isinstance(data["total_products"], int)
     assert isinstance(data["total_categories"], int)
     assert isinstance(data["categories"], list)
