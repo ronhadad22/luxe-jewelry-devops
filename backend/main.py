@@ -243,7 +243,7 @@ async def add_to_cart(
 @app.get("/api/cart", response_model=List[CartItem])
 async def get_cart(
     session_id: str = "default",
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Get cart items for a session or authenticated user"""
     if current_user:
