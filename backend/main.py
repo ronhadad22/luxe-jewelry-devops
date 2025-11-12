@@ -38,6 +38,7 @@ class Product(BaseModel):
     category: str = "jewelry"
     in_stock: bool = True
 
+
 class CartItem(BaseModel):
     id: str
     product_id: int
@@ -47,6 +48,7 @@ class CartItem(BaseModel):
 class CartItemRequest(BaseModel):
     product_id: int
     quantity: int = 1
+
 
 class CartResponse(BaseModel):
     items: List[dict]
@@ -107,9 +109,10 @@ products_db = [
         "image": "https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=300&h=300&fit=crop",
         "description": "Exquisite emerald pendant with diamond accents",
         "category": "necklaces",
-        "in_stock": True
-    }
+        "in_stock": True,
+    },
 ]
+
 
 # Authentication utilities
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -123,6 +126,7 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
         return user_id
     except jwt.PyJWTError:
         return None
+
 
 async def get_current_user(user_id: str = Depends(verify_token)):
     """Get current user info from auth service"""
@@ -146,9 +150,11 @@ user_carts_db = {}
 
 # API Endpoints
 
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Luxe Jewelry Store API"}
+
 
 @app.get("/health")
 async def health_check():
@@ -160,8 +166,9 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "uptime": "running",
         "database": "connected",
-        "environment": "production"
+        "environment": "production",
     }
+
 
 @app.get("/api/products", response_model=List[Product])
 async def get_products(category: Optional[str] = None):
