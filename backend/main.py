@@ -45,6 +45,7 @@ class CartItem(BaseModel):
     quantity: int
     added_at: datetime
 
+
 class CartItemRequest(BaseModel):
     product_id: int
     quantity: int = 1
@@ -55,6 +56,7 @@ class CartResponse(BaseModel):
     total: float
     item_count: int
 
+
 # In-memory storage (in production, use a database)
 products_db = [
     {
@@ -64,7 +66,7 @@ products_db = [
         "image": "https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=300&h=300&fit=crop",
         "description": "Elegant 1.5 carat diamond ring in 18k white gold",
         "category": "rings",
-        "in_stock": True
+        "in_stock": True,
     },
     {
         "id": 2,
@@ -73,7 +75,7 @@ products_db = [
         "image": "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=300&h=300&fit=crop",
         "description": "Classic freshwater pearl necklace with sterling silver clasp",
         "category": "necklaces",
-        "in_stock": True
+        "in_stock": True,
     },
     {
         "id": 3,
@@ -82,7 +84,7 @@ products_db = [
         "image": "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?w=300&h=300&fit=crop",
         "description": "Handcrafted 14k gold chain bracelet",
         "category": "bracelets",
-        "in_stock": True
+        "in_stock": True,
     },
     {
         "id": 4,
@@ -91,7 +93,7 @@ products_db = [
         "image": "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?w=300&h=300&fit=crop",
         "description": "Blue sapphire stud earrings in white gold setting",
         "category": "earrings",
-        "in_stock": True
+        "in_stock": True,
     },
     {
         "id": 5,
@@ -100,7 +102,7 @@ products_db = [
         "image": "https://images.unsplash.com/photo-1573408301185-9146fe634ad0?w=300&h=300&fit=crop",
         "description": "Stunning ruby tennis bracelet with 18k white gold setting",
         "category": "bracelets",
-        "in_stock": True
+        "in_stock": True,
     },
     {
         "id": 6,
@@ -119,9 +121,11 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     """Verify JWT token and return user ID (optional authentication)"""
     if not credentials:
         return None
-    
+
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            credentials.credentials, JWT_SECRET_KEY, algorithms=[ALGORITHM]
+        )
         user_id: str = payload.get("sub")
         return user_id
     except jwt.PyJWTError:
@@ -132,16 +136,19 @@ async def get_current_user(user_id: str = Depends(verify_token)):
     """Get current user info from auth service"""
     if not user_id:
         return None
-    
+
     try:
         async with httpx.AsyncClient() as client:
-            headers = {"Authorization": f"Bearer {jwt.encode({'sub': user_id}, JWT_SECRET_KEY, algorithm=ALGORITHM)}"}
+            headers = {
+                "Authorization": f"Bearer {jwt.encode({'sub': user_id}, JWT_SECRET_KEY, algorithm=ALGORITHM)}"
+            }
             response = await client.get(f"{AUTH_SERVICE_URL}/auth/me", headers=headers)
             if response.status_code == 200:
                 return response.json()
     except Exception:
         pass
     return None
+
 
 # In-memory cart storage (in production, use database with user sessions)
 carts_db = {}
