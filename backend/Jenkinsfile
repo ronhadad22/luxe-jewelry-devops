@@ -216,7 +216,6 @@ spec:
     post {
         always {
             archiveArtifacts artifacts: 'backend/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', allowEmptyArchive: true
-            cleanWs()
         }
         success {
             echo "✅ Backend Service CI pipeline completed successfully!"

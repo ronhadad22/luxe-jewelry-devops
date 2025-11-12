@@ -4,6 +4,7 @@ from main import app
 
 client = TestClient(app)
 
+
 def test_root_endpoint():
     """Test the root endpoint"""
     response = client.get("/")
@@ -22,6 +23,7 @@ def test_health_check():
     assert data["uptime"] == "running"
     assert data["database"] == "connected"
 
+
 def test_get_products():
     """Test getting all products"""
     response = client.get("/api/products")
@@ -36,6 +38,7 @@ def test_get_products():
     assert "price" in product
     assert "category" in product
 
+
 def test_get_products_by_category():
     """Test filtering products by category"""
     response = client.get("/api/products?category=rings")
@@ -46,6 +49,7 @@ def test_get_products_by_category():
     for product in products:
         assert product["category"] == "rings"
 
+
 def test_get_single_product():
     """Test getting a single product"""
     response = client.get("/api/products/1")
@@ -55,11 +59,13 @@ def test_get_single_product():
     assert "name" in product
     assert "price" in product
 
+
 def test_get_nonexistent_product():
     """Test getting a product that doesn't exist"""
     response = client.get("/api/products/999")
     assert response.status_code == 404
     assert response.json()["detail"] == "Product not found"
+
 
 def test_get_categories():
     """Test getting product categories"""

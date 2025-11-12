@@ -27,6 +27,7 @@ ALGORITHM = "HS256"
 
 security = HTTPBearer(auto_error=False)
 
+
 # Data Models
 class Product(BaseModel):
     id: int

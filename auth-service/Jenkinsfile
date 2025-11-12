@@ -201,7 +201,6 @@ spec:
     post {
         always {
             archiveArtifacts artifacts: 'auth-service/**/*-report.json, auth-service/**/*-results.xml, auth-service/**/htmlcov/**', allowEmptyArchive: true
-            cleanWs()
         }
         success {
             echo "✅ Auth Service CI pipeline completed successfully!"

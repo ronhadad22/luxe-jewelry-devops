@@ -225,7 +225,6 @@ spec:
     post {
         always {
             archiveArtifacts artifacts: 'jewelry-store/build/**, jewelry-store/**/*-report.json, jewelry-store/**/junit.xml, jewelry-store/**/coverage/**', allowEmptyArchive: true
-            cleanWs()
         }
         success {
             echo "✅ Jewelry Store Frontend CI pipeline completed successfully!"
