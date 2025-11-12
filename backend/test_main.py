@@ -22,6 +22,7 @@ def test_health_check():
     assert "timestamp" in data
     assert data["uptime"] == "running"
     assert data["database"] == "connected"
+    assert data["environment"] == "production"
 
 
 def test_get_products():
