@@ -193,6 +193,8 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
                     changelog ''
                 }
             }
@@ -215,6 +217,8 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
                     changelog ''
                 }
             }
@@ -254,6 +258,8 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
                     changelog ''
                 }
             }
