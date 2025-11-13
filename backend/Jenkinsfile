@@ -48,12 +48,10 @@ spec:
     }
     
     environment {
-        PYTHON_VERSION = '3.11'
         SERVICE_NAME = 'backend'
         AWS_DEFAULT_REGION = 'us-east-2'
         ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
         ECR_REPOSITORY = 'jewleryapp/be'
-        // IMAGE_TAG will be set dynamically in the Version Info stage
     }
     
     stages {
@@ -177,6 +175,12 @@ spec:
         }
         
         stage('Lint Code') {
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                }
+            }
             steps {
                 container('python') {
                     dir('backend') {
@@ -208,98 +212,62 @@ spec:
             }
         }
         
-        stage('Security Scan') {
-            steps {
-                container('python') {
-                    dir('backend') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install bandit safety
-                            echo "Running security scan with bandit..."
-                            bandit -r . -f json -o bandit-report.json || true
-                            echo "Checking for known security vulnerabilities..."
-                            safety check --json --output safety-report.json || true
-                        '''
+        stage('Test & Security') {
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                }
+            }
+            parallel {
+                stage('Run Tests') {
+                    steps {
+                        container('python') {
+                            dir('backend') {
+                                sh '''
+                                    . venv/bin/activate
+                                    pip install pytest pytest-cov pytest-asyncio
+                                    echo "Running tests..."
+                                    pytest --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml || true
+                                '''
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            dir('backend') {
+                                junit testResults: 'test-results.xml', allowEmptyResults: true
+                                publishHTML([
+                                    allowMissing: false,
+                                    alwaysLinkToLastBuild: true,
+                                    keepAll: true,
+                                    reportDir: 'htmlcov',
+                                    reportFiles: 'index.html',
+                                    reportName: 'Coverage Report'
+                                ])
+                            }
+                        }
+                    }
+                }
+                stage('Security Scan') {
+                    steps {
+                        container('python') {
+                            dir('backend') {
+                                sh '''
+                                    . venv/bin/activate
+                                    pip install bandit safety pip-audit
+                                    echo "Running security scans..."
+                                    bandit -r . -f json -o bandit-report.json --exclude="./venv" || true
+                                    safety check --json --output safety-report.json || true
+                                    pip-audit --format=json --output=pip-audit-report.json || true
+                                '''
+                            }
+                        }
                     }
                 }
             }
         }
         
-        stage('Run Tests') {
-            steps {
-                container('python') {
-                    dir('backend') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install pytest pytest-cov pytest-asyncio
-                            echo "Running tests..."
-                            pytest --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml || true
-                        '''
-                    }
-                }
-            }
-            post {
-                always {
-                    dir('backend') {
-                        junit testResults: 'test-results.xml', allowEmptyResults: true
-                        publishHTML([
-                            allowMissing: false,
-                            alwaysLinkToLastBuild: true,
-                            keepAll: true,
-                            reportDir: 'htmlcov',
-                            reportFiles: 'index.html',
-                            reportName: 'Coverage Report'
-                        ])
-                    }
-                }
-            }
-        }
-        
-        stage('Dependency Check') {
-            steps {
-                container('python') {
-                    dir('backend') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install pip-audit
-                            echo "Auditing dependencies for vulnerabilities..."
-                            pip-audit --format=json --output=pip-audit-report.json || true
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('API Health Check') {
-            steps {
-                container('python') {
-                    dir('backend') {
-                        sh '''
-                            . venv/bin/activate
-                            echo "Starting backend service for health check..."
-                            timeout 10s python main.py &
-                            sleep 5
-                            echo "Backend service validation completed"
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Integration Tests') {
-            steps {
-                container('python') {
-                    dir('backend') {
-                        sh '''
-                            . venv/bin/activate
-                            echo "Running integration tests..."
-                            # Add integration test commands here when available
-                            echo "Integration tests placeholder - implement when tests are available"
-                        '''
-                    }
-                }
-            }
-        }
         
         stage('Build Docker Image') {
             when {
@@ -314,11 +282,10 @@ spec:
                         script {
                             sh '''
                                 export DOCKER_HOST=tcp://localhost:2375
-                                echo "Waiting for Docker daemon to be ready..."
-                                sleep 15
-                                echo "Testing Docker connection..."
+                                echo "Waiting for Docker daemon..."
+                                sleep 10
                                 docker version
-                                echo "Building Docker image with tag: ${IMAGE_TAG}"
+                                echo "Building Docker image: ${IMAGE_TAG}"
                                 docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
                             '''
                             
@@ -375,11 +342,7 @@ spec:
                         script {
                             sh '''
                                 export DOCKER_HOST=tcp://localhost:2375
-                                echo "Using IRSA for ECR authentication..."
-                                echo "Current AWS identity:"
-                                aws sts get-caller-identity
-
-                                echo "Logging into ECR..."
+                                echo "Authenticating to ECR..."
                                 aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                             '''
                             
