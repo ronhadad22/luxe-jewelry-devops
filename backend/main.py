@@ -147,9 +147,6 @@ async def get_current_user(user_id: str = Depends(verify_token)):
                 return response.json()
     except Exception:
         pass
-    return None
-
-
 # In-memory cart storage (in production, use database with user sessions)
 carts_db = {}
 # User-based carts (for authenticated users)
@@ -160,7 +157,7 @@ user_carts_db = {}
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Luxe Jewelry Store API"}
+    return {"message": "Welcome to Luxe Jewelry Store API", "version": "1.1.0", "feature": "api-improvements"}
 
 
 @app.get("/health")
@@ -169,7 +166,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "backend",
-        "version": "1.1.1",
+        "version": "1.1.0",
         "timestamp": datetime.now().isoformat(),
         "uptime": "running",
         "database": "connected",
