@@ -66,7 +66,17 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
-                    // Always run on first build (empty changelog)
+                    allOf {
+                        anyOf {
+                            branch 'main'
+                            branch 'master'
+                        }
+                        changeset "backend/**"
+                    }
+                    branch 'backend/PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
                     changelog ''
                 }
             }
@@ -127,9 +137,32 @@ spec:
                         case 'development':
                             imageTag = "${latestTag}-dev.${buildNumber}.${commitSha}"
                             break
+                        case 'be/release':
+                        case 'backend/release':
+                            // Backend release branch - increment patch version for new release
+                            def versionParts = latestTag.split('\\.')
+                            def patch = (versionParts[2] as Integer) + 1
+                            imageTag = "${versionParts[0]}.${versionParts[1]}.${patch}"
+                            break
+                        case ~/^backend\/release\/.*/:
+                            def releaseVersion = branchName.replaceAll('backend/release/', '')
+                            imageTag = "${releaseVersion}-rc.${buildNumber}"
+                            break
                         case ~/^release\/.*/:
                             def releaseVersion = branchName.replaceAll('release/', '')
-                            imageTag = "${releaseVersion}-rc.${buildNumber}"
+                            imageTag = "${releaseVersion}"
+                            break
+                        case ~/^feature\/backend\/.*/:
+                            def featureParts = branchName.split('/')
+                            def featureName = featureParts.length > 3 ? featureParts[3] : 'feature'
+                            def targetVersion = featureParts.length > 2 ? featureParts[2] : latestTag
+                            imageTag = "${targetVersion}-${featureName}.${buildNumber}.${commitSha}"
+                            break
+                        case ~/^patch\/backend\/.*/:
+                            def patchParts = branchName.split('/')
+                            def patchName = patchParts.length > 3 ? patchParts[3] : 'patch'
+                            def targetVersion = patchParts.length > 2 ? patchParts[2] : latestTag
+                            imageTag = "${targetVersion}-${patchName}.${buildNumber}.${commitSha}"
                             break
                         case ~/^feature\/.*/:
                             def featureName = branchName.replaceAll('feature/', '').replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
@@ -279,7 +312,17 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
-                    changelog ''
+                    allOf {
+                        anyOf {
+                            branch 'main'
+                            branch 'master'
+                        }
+                        changeset "backend/**"
+                    }
+                    branch 'backend/PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
                 }
             }
             steps {
@@ -340,7 +383,17 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
-                    changelog ''
+                    allOf {
+                        anyOf {
+                            branch 'main'
+                            branch 'master'
+                        }
+                        changeset "backend/**"
+                    }
+                    branch 'backend/PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
                 }
             }
             steps {
@@ -378,8 +431,14 @@ spec:
         stage('Create Git Tag') {
             when {
                 anyOf {
-                    branch 'main'
-                    branch 'master'
+                    allOf {
+                        anyOf {
+                            branch 'main'
+                            branch 'master'
+                        }
+                        changeset "backend/**"
+                    }
+                    branch 'backend/release/*'
                     branch 'release/*'
                 }
             }
@@ -402,6 +461,12 @@ spec:
                                 shouldTag = true
                                 tagName = "backend/v${IMAGE_TAG}"
                             }
+                            break
+                        case 'be/release':
+                        case 'backend/release':
+                            // Backend release branch - create final release tag
+                            shouldTag = true
+                            tagName = "backend/v${IMAGE_TAG}"
                             break
                         case ~/^release\/.*/:
                             // Tag release candidates
