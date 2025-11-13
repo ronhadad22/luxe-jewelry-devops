@@ -19,7 +19,7 @@ spec:
       limits:
         memory: "512Mi" 
         cpu: "500m"
-  - name: docker
+  - name: docker-aws
     image: docker:24.0.6-dind
     securityContext:
       privileged: true
@@ -28,6 +28,14 @@ spec:
       value: ""
     - name: DOCKER_HOST
       value: "tcp://localhost:2375"
+    command:
+    - sh
+    - -c
+    - |
+      # Install AWS CLI in the Docker container
+      apk add --no-cache aws-cli
+      dockerd-entrypoint.sh
+    tty: true
     resources:
       requests:
         memory: "512Mi"
@@ -35,18 +43,6 @@ spec:
       limits:
         memory: "1Gi"
         cpu: "1000m"
-  - name: aws-cli
-    image: amazon/aws-cli:latest
-    command:
-    - cat
-    tty: true
-    resources:
-      requests:
-        memory: "128Mi"
-        cpu: "50m"
-      limits:
-        memory: "256Mi"
-        cpu: "200m"
 """
         }
     }
@@ -93,13 +89,13 @@ spec:
                                     pip install flake8 black isort
                                     
                                     echo "Running code formatting checks..."
-                                    black --check --diff .
+                                    black --check --diff . --exclude="venv/"
                                     
                                     echo "Running flake8 linting..."
-                                    flake8 . --max-line-length=88 --extend-ignore=E203,W503
+                                    flake8 . --max-line-length=88 --extend-ignore=E203,W503 --exclude=venv/
                                     
                                     echo "Running import sorting checks..."
-                                    isort --check-only --diff .
+                                    isort --check-only --diff . --skip-glob="venv/*"
                                     
                                     echo "✅ All linting checks passed!"
                                 '''
@@ -209,7 +205,7 @@ spec:
         
         stage('Build Docker Image') {
             steps {
-                container('docker') {
+                container('docker-aws') {
                     dir('backend') {
                         sh '''
                             export DOCKER_HOST=tcp://localhost:2375
@@ -229,7 +225,7 @@ spec:
         
         stage('Push to ECR') {
             steps {
-                container('docker') {
+                container('docker-aws') {
                     dir('backend') {
                         sh '''
                             export DOCKER_HOST=tcp://localhost:2375
