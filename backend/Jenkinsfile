@@ -47,14 +47,6 @@ spec:
         }
     }
     
-    // Global when condition - entire pipeline only runs when backend changes
-    when {
-        anyOf {
-            changeset "backend/**"
-            triggeredBy cause: "UserIdCause"
-        }
-    }
-    
     environment {
         PYTHON_VERSION = '3.11'
         SERVICE_NAME = 'backend'
@@ -72,6 +64,12 @@ spec:
         }
         
         stage('Version Info') {
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                }
+            }
             steps {
                 script {
                     // Use Jenkins built-in environment variables
@@ -158,6 +156,12 @@ spec:
         }
         
         stage('Setup Python Environment') {
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                }
+            }
             steps {
                 container('python') {
                     dir('backend') {
@@ -298,6 +302,12 @@ spec:
         }
         
         stage('Build Docker Image') {
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                }
+            }
             steps {
                 container('docker-aws') {
                     dir('backend') {
@@ -353,6 +363,12 @@ spec:
         }
         
         stage('Push to ECR') {
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                }
+            }
             steps {
                 container('docker-aws') {
                     dir('backend') {
