@@ -1,3 +1,74 @@
+// Function to generate image tag based on Git tags and branch context
+def generateImageTag() {
+    def branchName = env.BRANCH_NAME ?: 'unknown'
+    def buildNumber = env.BUILD_NUMBER ?: '0'
+    def commitSha = ''
+    
+    // Get short commit SHA
+    try {
+        commitSha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+    } catch (Exception e) {
+        commitSha = 'unknown'
+    }
+    
+    // Get latest service-specific tag
+    def latestTag = ''
+    try {
+        latestTag = sh(
+            script: 'git tag --list --sort=-version:refname "backend/v*" | head -n1',
+            returnStdout: true
+        ).trim()
+        
+        if (latestTag) {
+            latestTag = latestTag.replaceAll('backend/v', '')
+        }
+    } catch (Exception e) {
+        latestTag = ''
+    }
+    
+    // Generate tag based on branch and context
+    switch (branchName) {
+        case 'main':
+        case 'master':
+            // Production: Use Git tag if available, otherwise semantic version
+            if (latestTag) {
+                return latestTag
+            } else {
+                return "1.0.0"
+            }
+            
+        case 'develop':
+        case 'development':
+            // Development: version-dev-build-commit
+            def baseVersion = latestTag ?: '1.0.0'
+            return "${baseVersion}-dev.${buildNumber}.${commitSha}"
+            
+        case ~/^release\/.*/:
+            // Release branch: extract version from branch name
+            def releaseVersion = branchName.replaceAll('release/', '')
+            return "${releaseVersion}-rc.${buildNumber}"
+            
+        case ~/^hotfix\/.*/:
+            // Hotfix: increment patch version
+            def baseVersion = latestTag ?: '1.0.0'
+            def versionParts = baseVersion.split('\\.')
+            def patch = (versionParts[2] as Integer) + 1
+            return "${versionParts[0]}.${versionParts[1]}.${patch}-hotfix.${buildNumber}.${commitSha}"
+            
+        case ~/^feature\/.*/:
+            // Feature branch: version-feature-build-commit
+            def baseVersion = latestTag ?: '1.0.0'
+            def featureName = branchName.replaceAll('feature/', '').replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
+            return "${baseVersion}-${featureName}.${buildNumber}.${commitSha}"
+            
+        default:
+            // Other branches: version-branch-build-commit
+            def baseVersion = latestTag ?: '1.0.0'
+            def cleanBranch = branchName.replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
+            return "${baseVersion}-${cleanBranch}.${buildNumber}.${commitSha}"
+    }
+}
+
 pipeline {
     agent {
         kubernetes {
@@ -53,13 +124,42 @@ spec:
         AWS_DEFAULT_REGION = 'us-east-2'
         ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
         ECR_REPOSITORY = 'jewleryapp/be'
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        // Dynamic version based on Git tags and branch
+        IMAGE_TAG = generateImageTag()
     }
     
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+        
+        stage('Version Info') {
+            steps {
+                script {
+                    echo "🏷️  Version Information:"
+                    echo "   Service: ${SERVICE_NAME}"
+                    echo "   Branch: ${BRANCH_NAME}"
+                    echo "   Image Tag: ${IMAGE_TAG}"
+                    echo "   Build Number: ${BUILD_NUMBER}"
+                    echo "   Commit SHA: ${sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()}"
+                    
+                    // Get latest service tag for reference
+                    try {
+                        def latestTag = sh(
+                            script: 'git tag --list --sort=-version:refname "backend/v*" | head -n1',
+                            returnStdout: true
+                        ).trim()
+                        if (latestTag) {
+                            echo "   Latest Service Tag: ${latestTag}"
+                        } else {
+                            echo "   Latest Service Tag: None (first release)"
+                        }
+                    } catch (Exception e) {
+                        echo "   Latest Service Tag: Unable to determine"
+                    }
+                }
             }
         }
         
@@ -207,17 +307,52 @@ spec:
             steps {
                 container('docker-aws') {
                     dir('backend') {
-                        sh '''
-                            export DOCKER_HOST=tcp://localhost:2375
-                            echo "Waiting for Docker daemon to be ready..."
-                            sleep 15
-                            echo "Testing Docker connection..."
-                            docker version
-                            echo "Building Docker image..."
-                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
-                            docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                            echo "Docker image built successfully"
-                        '''
+                        script {
+                            sh '''
+                                export DOCKER_HOST=tcp://localhost:2375
+                                echo "Waiting for Docker daemon to be ready..."
+                                sleep 15
+                                echo "Testing Docker connection..."
+                                docker version
+                                echo "Building Docker image with tag: ${IMAGE_TAG}"
+                                docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
+                            '''
+                            
+                            // Create additional tags based on branch context
+                            def additionalTags = []
+                            def commitSha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            
+                            // Always tag with commit SHA
+                            additionalTags.add("commit-${commitSha}")
+                            additionalTags.add("build-${BUILD_NUMBER}")
+                            
+                            // Branch-specific tags
+                            switch (BRANCH_NAME) {
+                                case 'main':
+                                case 'master':
+                                    additionalTags.add('latest')
+                                    additionalTags.add('stable')
+                                    break
+                                case 'develop':
+                                case 'development':
+                                    additionalTags.add('latest-dev')
+                                    break
+                                case ~/^release\/.*/:
+                                    additionalTags.add('latest-rc')
+                                    break
+                                default:
+                                    additionalTags.add("latest-${BRANCH_NAME.replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()}")
+                                    break
+                            }
+                            
+                            // Create all additional tags
+                            echo "Creating additional tags: ${additionalTags.join(', ')}"
+                            for (tag in additionalTags) {
+                                sh "docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${tag}"
+                            }
+                            
+                            echo "✅ Docker image built successfully with ${additionalTags.size() + 1} tags"
+                        }
                     }
                 }
             }
@@ -227,21 +362,90 @@ spec:
             steps {
                 container('docker-aws') {
                     dir('backend') {
-                        sh '''
-                            export DOCKER_HOST=tcp://localhost:2375
-                            echo "Using IRSA for ECR authentication..."
-                            echo "Current AWS identity:"
-                            aws sts get-caller-identity
+                        script {
+                            sh '''
+                                export DOCKER_HOST=tcp://localhost:2375
+                                echo "Using IRSA for ECR authentication..."
+                                echo "Current AWS identity:"
+                                aws sts get-caller-identity
 
-                            echo "Logging into ECR..."
-                            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-
-                            echo "Pushing Docker image to ECR..."
-                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-
-                            echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-                        '''
+                                echo "Logging into ECR..."
+                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            '''
+                            
+                            // Get all image tags
+                            def imageTags = sh(
+                                script: "docker images ${ECR_REGISTRY}/${ECR_REPOSITORY} --format '{{.Tag}}' | grep -v '<none>'",
+                                returnStdout: true
+                            ).trim().split('\n')
+                            
+                            echo "📦 Pushing ${imageTags.size()} tags to ECR:"
+                            for (tag in imageTags) {
+                                if (tag.trim()) {
+                                    echo "   Pushing: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${tag}"
+                                    sh "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${tag}"
+                                }
+                            }
+                            
+                            echo "✅ Successfully pushed all tags to ECR"
+                            echo "🔗 Primary image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Create Git Tag') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                    branch 'release/*'
+                }
+            }
+            steps {
+                script {
+                    def shouldTag = false
+                    def tagName = ""
+                    
+                    switch (BRANCH_NAME) {
+                        case 'main':
+                        case 'master':
+                            // Only tag if this is a clean semantic version (no pre-release identifiers)
+                            if (IMAGE_TAG ==~ /^\d+\.\d+\.\d+$/) {
+                                shouldTag = true
+                                tagName = "backend/v${IMAGE_TAG}"
+                            }
+                            break
+                        case ~/^release\/.*/:
+                            // Tag release candidates
+                            shouldTag = true
+                            tagName = "backend/v${IMAGE_TAG}"
+                            break
+                    }
+                    
+                    if (shouldTag) {
+                        echo "🏷️  Creating Git tag: ${tagName}"
+                        
+                        // Check if tag already exists
+                        def tagExists = sh(
+                            script: "git tag -l '${tagName}'",
+                            returnStdout: true
+                        ).trim()
+                        
+                        if (!tagExists) {
+                            sh """
+                                git config user.name "Jenkins CI"
+                                git config user.email "jenkins@luxe-jewelry.com"
+                                git tag -a '${tagName}' -m 'Release ${SERVICE_NAME} version ${IMAGE_TAG}'
+                                git push origin '${tagName}'
+                            """
+                            echo "✅ Created and pushed Git tag: ${tagName}"
+                        } else {
+                            echo "⚠️  Tag ${tagName} already exists, skipping"
+                        }
+                    } else {
+                        echo "ℹ️  Skipping Git tag creation for ${BRANCH_NAME} with version ${IMAGE_TAG}"
                     }
                 }
             }
