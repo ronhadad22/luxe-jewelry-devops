@@ -19,7 +19,7 @@ def test_health_check():
     data = response.json()
     assert data["status"] == "healthy"
     assert data["service"] == "backend"
-    assert data["version"] == "1.1.0"
+    assert data["version"] == "1.1.1"
     assert "timestamp" in data
     assert data["uptime"] == "running"
     assert data["database"] == "connected"

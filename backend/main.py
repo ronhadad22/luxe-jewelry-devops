@@ -9,7 +9,7 @@ import httpx
 from datetime import datetime
 import os
 
-app = FastAPI(title="Luxe Jewelry Store API", version="1.1.0")
+app = FastAPI(title="Luxe Jewelry Store API", version="1.1.1")
 
 # Enable CORS for React frontend
 app.add_middleware(
@@ -169,7 +169,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "backend",
-        "version": "1.1.0",
+        "version": "1.1.1",
         "timestamp": datetime.now().isoformat(),
         "uptime": "running",
         "database": "connected",
@@ -245,7 +245,7 @@ async def get_cart(
     session_id: str = "default",
     current_user: dict = Depends(get_current_user),
 ):
-    """Get cart items for a session or authenticated user"""
+    """Get cart items for a session or authenticated User"""
     if current_user:
         # Return user's cart if authenticated
         user_id = current_user["id"]
