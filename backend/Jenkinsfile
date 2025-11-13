@@ -1,74 +1,3 @@
-// Function to generate image tag based on Git tags and branch context
-def generateImageTag() {
-    def branchName = env.BRANCH_NAME ?: 'unknown'
-    def buildNumber = env.BUILD_NUMBER ?: '0'
-    def commitSha = ''
-    
-    // Get short commit SHA
-    try {
-        commitSha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-    } catch (Exception e) {
-        commitSha = 'unknown'
-    }
-    
-    // Get latest service-specific tag
-    def latestTag = ''
-    try {
-        latestTag = sh(
-            script: 'git tag --list --sort=-version:refname "backend/v*" | head -n1',
-            returnStdout: true
-        ).trim()
-        
-        if (latestTag) {
-            latestTag = latestTag.replaceAll('backend/v', '')
-        }
-    } catch (Exception e) {
-        latestTag = ''
-    }
-    
-    // Generate tag based on branch and context
-    switch (branchName) {
-        case 'main':
-        case 'master':
-            // Production: Use Git tag if available, otherwise semantic version
-            if (latestTag) {
-                return latestTag
-            } else {
-                return "1.0.0"
-            }
-            
-        case 'develop':
-        case 'development':
-            // Development: version-dev-build-commit
-            def baseVersion = latestTag ?: '1.0.0'
-            return "${baseVersion}-dev.${buildNumber}.${commitSha}"
-            
-        case ~/^release\/.*/:
-            // Release branch: extract version from branch name
-            def releaseVersion = branchName.replaceAll('release/', '')
-            return "${releaseVersion}-rc.${buildNumber}"
-            
-        case ~/^hotfix\/.*/:
-            // Hotfix: increment patch version
-            def baseVersion = latestTag ?: '1.0.0'
-            def versionParts = baseVersion.split('\\.')
-            def patch = (versionParts[2] as Integer) + 1
-            return "${versionParts[0]}.${versionParts[1]}.${patch}-hotfix.${buildNumber}.${commitSha}"
-            
-        case ~/^feature\/.*/:
-            // Feature branch: version-feature-build-commit
-            def baseVersion = latestTag ?: '1.0.0'
-            def featureName = branchName.replaceAll('feature/', '').replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
-            return "${baseVersion}-${featureName}.${buildNumber}.${commitSha}"
-            
-        default:
-            // Other branches: version-branch-build-commit
-            def baseVersion = latestTag ?: '1.0.0'
-            def cleanBranch = branchName.replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
-            return "${baseVersion}-${cleanBranch}.${buildNumber}.${commitSha}"
-    }
-}
-
 pipeline {
     agent {
         kubernetes {
@@ -118,14 +47,21 @@ spec:
         }
     }
     
+    // Global when condition - entire pipeline only runs when backend changes
+    when {
+        anyOf {
+            changeset "backend/**"
+            triggeredBy cause: "UserIdCause"
+        }
+    }
+    
     environment {
         PYTHON_VERSION = '3.11'
         SERVICE_NAME = 'backend'
         AWS_DEFAULT_REGION = 'us-east-2'
         ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
         ECR_REPOSITORY = 'jewleryapp/be'
-        // Dynamic version based on Git tags and branch
-        IMAGE_TAG = generateImageTag()
+        // IMAGE_TAG will be set dynamically in the Version Info stage
     }
     
     stages {
@@ -138,27 +74,85 @@ spec:
         stage('Version Info') {
             steps {
                 script {
-                    echo "🏷️  Version Information:"
-                    echo "   Service: ${SERVICE_NAME}"
-                    echo "   Branch: ${BRANCH_NAME}"
-                    echo "   Image Tag: ${IMAGE_TAG}"
-                    echo "   Build Number: ${BUILD_NUMBER}"
-                    echo "   Commit SHA: ${sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()}"
+                    // Use Jenkins built-in environment variables
+                    def branchName = env.BRANCH_NAME ?: 'unknown'
+                    def buildNumber = env.BUILD_NUMBER ?: '0'
+                    def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
                     
-                    // Get latest service tag for reference
+                    // Get latest service-specific tag
+                    def latestTag = ''
+                    def hasServiceTags = false
+                    
                     try {
-                        def latestTag = sh(
+                        latestTag = sh(
                             script: 'git tag --list --sort=-version:refname "backend/v*" | head -n1',
                             returnStdout: true
                         ).trim()
+                        
                         if (latestTag) {
-                            echo "   Latest Service Tag: ${latestTag}"
-                        } else {
-                            echo "   Latest Service Tag: None (first release)"
+                            latestTag = latestTag.replaceAll('backend/v', '')
+                            hasServiceTags = true
                         }
                     } catch (Exception e) {
-                        echo "   Latest Service Tag: Unable to determine"
+                        latestTag = ''
                     }
+                    
+                    // If no service-specific tags, use smart defaults
+                    if (!hasServiceTags) {
+                        try {
+                            def commitCount = sh(
+                                script: 'git rev-list --count HEAD',
+                                returnStdout: true
+                            ).trim() as Integer
+                            
+                            if (commitCount > 100) {
+                                latestTag = '0.1.0'
+                                echo "📋 No version tags found, mature project detected (${commitCount} commits) - starting with 0.1.0"
+                            } else {
+                                latestTag = '0.0.1'
+                                echo "📋 No version tags found, new project detected (${commitCount} commits) - starting with 0.0.1"
+                            }
+                        } catch (Exception e) {
+                            latestTag = '0.0.1'
+                            echo "⚠️ Could not determine version, using fallback: 0.0.1"
+                        }
+                    }
+                    
+                    // Generate image tag based on branch
+                    def imageTag = ''
+                    switch (branchName) {
+                        case 'main':
+                        case 'master':
+                            imageTag = latestTag
+                            break
+                        case 'develop':
+                        case 'development':
+                            imageTag = "${latestTag}-dev.${buildNumber}.${commitSha}"
+                            break
+                        case ~/^release\/.*/:
+                            def releaseVersion = branchName.replaceAll('release/', '')
+                            imageTag = "${releaseVersion}-rc.${buildNumber}"
+                            break
+                        case ~/^feature\/.*/:
+                            def featureName = branchName.replaceAll('feature/', '').replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
+                            imageTag = "${latestTag}-${featureName}.${buildNumber}.${commitSha}"
+                            break
+                        default:
+                            def cleanBranch = branchName.replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
+                            imageTag = "${latestTag}-${cleanBranch}.${buildNumber}.${commitSha}"
+                            break
+                    }
+                    
+                    // Set as environment variable for other stages
+                    env.IMAGE_TAG = imageTag
+                    
+                    echo "🏷️  Version Information:"
+                    echo "   Service: ${SERVICE_NAME}"
+                    echo "   Branch: ${branchName}"
+                    echo "   Image Tag: ${imageTag}"
+                    echo "   Build Number: ${buildNumber}"
+                    echo "   Commit SHA: ${commitSha}"
+                    echo "   Latest Service Tag: ${hasServiceTags ? "backend/v${latestTag}" : "None (first release)"}"
                 }
             }
         }
@@ -320,7 +314,7 @@ spec:
                             
                             // Create additional tags based on branch context
                             def additionalTags = []
-                            def commitSha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
                             
                             // Always tag with commit SHA
                             additionalTags.add("commit-${commitSha}")
