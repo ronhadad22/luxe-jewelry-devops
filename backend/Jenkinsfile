@@ -5,6 +5,7 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  serviceAccountName: jenkins-agent
   containers:
   - name: python
     image: python:3.11-slim
@@ -230,19 +231,21 @@ spec:
             steps {
                 container('aws-cli') {
                     dir('backend') {
-                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-                            sh '''
-                                export DOCKER_HOST=tcp://localhost:2375
-                                echo "Logging into ECR..."
-                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                                
-                                echo "Pushing Docker image to ECR..."
-                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                                
-                                echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-                            '''
-                        }
+                        sh '''
+                            export DOCKER_HOST=tcp://localhost:2375
+                            echo "Using IRSA for ECR authentication..."
+                            echo "Current AWS identity:"
+                            aws sts get-caller-identity
+                            
+                            echo "Logging into ECR..."
+                            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            
+                            echo "Pushing Docker image to ECR..."
+                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                            docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                            
+                            echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                        '''
                     }
                 }
             }
