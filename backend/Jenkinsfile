@@ -1,48 +1,9 @@
+@Library('shared-pipeline-library') _
+
 pipeline {
     agent {
         kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  serviceAccountName: jenkins-agent
-  containers:
-  - name: python
-    image: python:3.11-slim
-    command: ['cat']
-    tty: true
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "100m"
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-  - name: docker-aws
-    image: docker:24.0.6-dind
-    securityContext:
-      privileged: true
-    env:
-    - name: DOCKER_TLS_CERTDIR
-      value: ""
-    - name: DOCKER_HOST
-      value: "tcp://localhost:2375"
-    command:
-    - sh
-    - -c
-    - |
-      # Install AWS CLI in the Docker container
-      apk add --no-cache aws-cli
-      dockerd-entrypoint.sh
-    resources:
-      requests:
-        memory: "512Mi"
-        cpu: "200m"
-      limits:
-        memory: "1Gi"
-        cpu: "1000m"
-    tty: true
-"""
+            yaml BackendPipeline.getPodTemplate()
         }
     }
     
@@ -57,10 +18,6 @@ spec:
         stage('Checkout') {
             steps {
                 checkout scm
-                script {
-                    // Load shared pipeline library after checkout
-                    backendPipeline = load 'jenkins/shared/BackendPipeline.groovy'
-                }
             }
         }
         
@@ -89,14 +46,14 @@ spec:
                     def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
                     
                     // Get latest backend version using shared function
-                    def latestTag = backendPipeline.getLatestBackendTag()
+                    def latestTag = BackendPipeline.getLatestBackendTag()
                     def hasServiceTags = sh(
                         script: "git tag --list 'backend/v*' | head -n1",
                         returnStdout: true
                     ).trim()
                     
                     // Generate image tag using shared function
-                    def imageTag = backendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
+                    def imageTag = BackendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
                     
                     // Set as environment variable for other stages
                     env.IMAGE_TAG = imageTag
@@ -133,7 +90,7 @@ spec:
                 container('python') {
                     dir('backend') {
                         script {
-                            backendPipeline.setupPythonEnvironment()
+                            BackendPipeline.setupPythonEnvironment()
                         }
                     }
                 }
@@ -162,7 +119,7 @@ spec:
                     dir('backend') {
                         script {
                             try {
-                                backendPipeline.runLinting()
+                                BackendPipeline.runLinting()
                             } catch (Exception e) {
                                 echo "⚠️ Linting issues found, but continuing pipeline..."
                                 echo "Error: ${e.getMessage()}"
@@ -197,7 +154,7 @@ spec:
                         container('python') {
                             dir('backend') {
                                 script {
-                                    backendPipeline.runTests()
+                                    BackendPipeline.runTests()
                                 }
                             }
                         }
@@ -223,7 +180,7 @@ spec:
                         container('python') {
                             dir('backend') {
                                 script {
-                                    backendPipeline.runSecurityScans()
+                                    BackendPipeline.runSecurityScans()
                                 }
                             }
                         }
@@ -254,7 +211,7 @@ spec:
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            def additionalTags = backendPipeline.buildDockerImage(
+                            def additionalTags = BackendPipeline.buildDockerImage(
                                 env.IMAGE_TAG, 
                                 env.ECR_REGISTRY, 
                                 env.ECR_REPOSITORY
@@ -291,7 +248,7 @@ spec:
                     dir('backend') {
                         script {
                             def additionalTags = env.ADDITIONAL_TAGS?.split(',') ?: []
-                            backendPipeline.pushToEcr(
+                            BackendPipeline.pushToEcr(
                                 env.IMAGE_TAG,
                                 env.ECR_REGISTRY,
                                 env.ECR_REPOSITORY,
@@ -323,7 +280,7 @@ spec:
                         return
                     }
                     
-                    backendPipeline.createGitTag(env.IMAGE_TAG)
+                    BackendPipeline.createGitTag(env.IMAGE_TAG)
                 }
             }
         }
