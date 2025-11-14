@@ -263,30 +263,6 @@ pipeline {
                 }
             }
         }
-        
-        stage('Create Git Tag') {
-            when {
-                anyOf {
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/release/*'
-                    branch 'release/*'
-                }
-            }
-            steps {
-                script {
-                    // Check if IMAGE_TAG is available (Version Info stage ran)
-                    if (!env.IMAGE_TAG) {
-                        echo "ℹ️  IMAGE_TAG not available, skipping Git tag creation"
-                        return
-                    }
-                    
-                    BackendPipeline.createGitTag(this, env.IMAGE_TAG)
-                }
-            }
-        }
     }
     
     post {
