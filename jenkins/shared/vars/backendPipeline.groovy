@@ -103,7 +103,7 @@ def runSecurityScans() {
         pip install bandit safety pip-audit
         echo "Running security scans..."
         bandit -r . -f json -o bandit-report.json --exclude="./venv" || true
-        safety check --json --output safety-report.json || true
+        safety check --output json > safety-report.json || true
         pip-audit --format=json --output=pip-audit-report.json || true
     '''
 }

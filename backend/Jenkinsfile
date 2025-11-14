@@ -211,7 +211,7 @@ pipeline {
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            def additionalTags = BackendPipeline.buildDockerImage(
+                            def additionalTags = backendPipeline.buildDockerImage(
                                 env.IMAGE_TAG, 
                                 env.ECR_REGISTRY, 
                                 env.ECR_REPOSITORY
