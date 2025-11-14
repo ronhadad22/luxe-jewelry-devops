@@ -66,12 +66,9 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
-                    allOf {
-                        anyOf {
-                            branch 'main'
-                            branch 'master'
-                        }
-                        changeset "backend/**"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
                     }
                     branch 'backend/PR-*'
                     branch 'PR-*'
@@ -325,12 +322,9 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
-                    allOf {
-                        anyOf {
-                            branch 'main'
-                            branch 'master'
-                        }
-                        changeset "backend/**"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
                     }
                     branch 'backend/PR-*'
                     branch 'PR-*'
@@ -405,12 +399,9 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
-                    allOf {
-                        anyOf {
-                            branch 'main'
-                            branch 'master'
-                        }
-                        changeset "backend/**"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
                     }
                     branch 'backend/release/*'
                     branch 'feature/backend/*'
@@ -458,12 +449,9 @@ spec:
         stage('Create Git Tag') {
             when {
                 anyOf {
-                    allOf {
-                        anyOf {
-                            branch 'main'
-                            branch 'master'
-                        }
-                        changeset "backend/**"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
                     }
                     branch 'backend/release/*'
                     branch 'release/*'
