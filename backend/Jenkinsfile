@@ -23,7 +23,22 @@ pipeline {
         }
         
         stage('Version Info') {
-            when(backendPipeline.getCommonWhenConditions())
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
+                    changelog ''
+                }
+            }
             steps {
                 script {
                     // Use Jenkins built-in environment variables
@@ -56,7 +71,22 @@ pipeline {
         }
         
         stage('Setup Python Environment') {
-            when(backendPipeline.getCommonWhenConditions())
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
+                    changelog ''
+                }
+            }
             steps {
                 container('python') {
                     dir('backend') {
@@ -69,7 +99,22 @@ pipeline {
         }
         
         stage('Lint Code') {
-            when(backendPipeline.getCommonWhenConditions())
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
+                    changelog ''
+                }
+            }
             steps {
                 container('python') {
                     dir('backend') {
@@ -88,7 +133,22 @@ pipeline {
         }
         
         stage('Test & Security') {
-            when(backendPipeline.getCommonWhenConditions())
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
+                    changelog ''
+                }
+            }
             parallel {
                 stage('Run Tests') {
                     steps {
@@ -132,7 +192,22 @@ pipeline {
         
         
         stage('Build Docker Image') {
-            when(backendPipeline.getCommonWhenConditions())
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
+                    changelog ''
+                }
+            }
             steps {
                 container('docker-aws') {
                     dir('backend') {
@@ -150,7 +225,25 @@ pipeline {
         }
         
         stage('Push to ECR') {
-            when(backendPipeline.getEcrPushWhenConditions())
+            when {
+                anyOf {
+                    changeset "backend/**"
+                    triggeredBy cause: "UserIdCause"
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/release/*'
+                    branch 'feature/backend/*'
+                    branch 'patch/backend/*'
+                }
+                not {
+                    anyOf {
+                        branch 'PR-*'
+                        branch 'backend/PR-*'
+                    }
+                }
+            }
             steps {
                 container('docker-aws') {
                     dir('backend') {
@@ -170,7 +263,16 @@ pipeline {
         }
         
         stage('Create Git Tag') {
-            when(backendPipeline.getGitTagWhenConditions())
+            when {
+                anyOf {
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                    branch 'backend/release/*'
+                    branch 'release/*'
+                }
+            }
             steps {
                 script {
                     // Check if IMAGE_TAG is available (Version Info stage ran)
