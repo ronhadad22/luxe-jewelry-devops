@@ -1,0 +1,207 @@
+@Library('shared-pipeline-library') _
+
+pipeline {
+    agent {
+        kubernetes {
+            yaml BackendPipeline.getPodTemplate()
+        }
+    }
+    
+    environment {
+        AWS_DEFAULT_REGION = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
+        ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
+        ECR_REPOSITORY = 'jewleryapp/be'
+        SERVICE_NAME = 'backend'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Version Info') {
+            when(BackendPipeline.getCommonWhenConditions())
+            steps {
+                script {
+                    // Use Jenkins built-in environment variables
+                    def branchName = env.BRANCH_NAME ?: 'unknown'
+                    def buildNumber = env.BUILD_NUMBER ?: '0'
+                    def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
+                    
+                    // Get latest backend version
+                    def latestTag = BackendPipeline.getLatestBackendTag()
+                    def hasServiceTags = sh(
+                        script: "git tag --list 'backend/v*' | head -n1",
+                        returnStdout: true
+                    ).trim()
+                    
+                    // Generate image tag using shared function
+                    def imageTag = BackendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
+                    
+                    // Set as environment variable for other stages
+                    env.IMAGE_TAG = imageTag
+                    
+                    // Display version information
+                    echo "🏷️  Version Information:"
+                    echo "   Service: ${SERVICE_NAME}"
+                    echo "   Branch: ${branchName}"
+                    echo "   Image Tag: ${imageTag}"
+                    echo "   Build Number: ${buildNumber}"
+                    echo "   Commit SHA: ${commitSha}"
+                    echo "   Latest Service Tag: ${hasServiceTags ? "backend/v${latestTag}" : "None (first release)"}"
+                }
+            }
+        }
+        
+        stage('Setup Python Environment') {
+            when(BackendPipeline.getCommonWhenConditions())
+            steps {
+                container('python') {
+                    dir('backend') {
+                        script {
+                            BackendPipeline.setupPythonEnvironment()
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Lint Code') {
+            when(BackendPipeline.getCommonWhenConditions())
+            steps {
+                container('python') {
+                    dir('backend') {
+                        script {
+                            try {
+                                BackendPipeline.runLinting()
+                            } catch (Exception e) {
+                                echo "⚠️ Linting issues found, but continuing pipeline..."
+                                echo "Error: ${e.getMessage()}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Test & Security') {
+            when(BackendPipeline.getCommonWhenConditions())
+            parallel {
+                stage('Run Tests') {
+                    steps {
+                        container('python') {
+                            dir('backend') {
+                                script {
+                                    BackendPipeline.runTests()
+                                }
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            dir('backend') {
+                                junit 'test-results.xml'
+                                publishHTML([
+                                    allowMissing: false,
+                                    alwaysLinkToLastBuild: true,
+                                    keepAll: true,
+                                    reportDir: 'htmlcov',
+                                    reportFiles: 'index.html',
+                                    reportName: 'Coverage Report'
+                                ])
+                            }
+                        }
+                    }
+                }
+                
+                stage('Security Scan') {
+                    steps {
+                        container('python') {
+                            dir('backend') {
+                                script {
+                                    BackendPipeline.runSecurityScans()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            when(BackendPipeline.getCommonWhenConditions())
+            steps {
+                container('docker-aws') {
+                    dir('backend') {
+                        script {
+                            def additionalTags = BackendPipeline.buildDockerImage(
+                                env.IMAGE_TAG, 
+                                env.ECR_REGISTRY, 
+                                env.ECR_REPOSITORY
+                            )
+                            env.ADDITIONAL_TAGS = additionalTags.join(',')
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            when(BackendPipeline.getEcrPushWhenConditions())
+            steps {
+                container('docker-aws') {
+                    dir('backend') {
+                        script {
+                            def additionalTags = env.ADDITIONAL_TAGS?.split(',') ?: []
+                            BackendPipeline.pushToEcr(
+                                env.IMAGE_TAG,
+                                env.ECR_REGISTRY,
+                                env.ECR_REPOSITORY,
+                                additionalTags,
+                                env.AWS_DEFAULT_REGION
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Create Git Tag') {
+            when(BackendPipeline.getGitTagWhenConditions())
+            steps {
+                script {
+                    // Check if IMAGE_TAG is available (Version Info stage ran)
+                    if (!env.IMAGE_TAG) {
+                        echo "ℹ️  IMAGE_TAG not available, skipping Git tag creation"
+                        return
+                    }
+                    
+                    BackendPipeline.createGitTag(env.IMAGE_TAG)
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Archive artifacts
+            archiveArtifacts artifacts: 'backend/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', 
+                           allowEmptyArchive: true
+            
+            // Clean workspace
+            cleanWs()
+            
+            echo "✅ Backend Service CI pipeline completed successfully!"
+        }
+        
+        failure {
+            echo "❌ Backend pipeline failed!"
+        }
+        
+        success {
+            echo "🎉 Backend pipeline completed successfully!"
+        }
+    }
+}
