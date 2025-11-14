@@ -74,6 +74,7 @@ spec:
                         changeset "backend/**"
                     }
                     branch 'backend/PR-*'
+                    branch 'PR-*'
                     branch 'backend/release/*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
@@ -193,6 +194,8 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
                     changelog ''
@@ -217,6 +220,8 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
                     changelog ''
@@ -258,6 +263,8 @@ spec:
                 anyOf {
                     changeset "backend/**"
                     triggeredBy cause: "UserIdCause"
+                    branch 'backend/PR-*'
+                    branch 'PR-*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
                     changelog ''
@@ -326,6 +333,7 @@ spec:
                         changeset "backend/**"
                     }
                     branch 'backend/PR-*'
+                    branch 'PR-*'
                     branch 'backend/release/*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
@@ -397,6 +405,7 @@ spec:
                         changeset "backend/**"
                     }
                     branch 'backend/PR-*'
+                    branch 'PR-*'
                     branch 'backend/release/*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
