@@ -164,27 +164,29 @@ def pushToEcr(imageTag, ecrRegistry, ecrRepository, additionalTags, awsRegion) {
 }
 
 def createGitTag(imageTag) {
-    def tagName = "backend/v${imageTag}"
-    
-    // Check if tag already exists
-    def tagExists = sh(returnStdout: true, script: "git tag -l '${tagName}'").trim()
-    
-    if (tagExists) {
-        echo "ℹ️  Tag ${tagName} already exists, skipping creation"
-        return
-    }
-    
-    // Validate semantic version format
-    if (imageTag ==~ /^\d+\.\d+\.\d+$/) {
-        sh """
-            git config user.name "Jenkins CI"
-            git config user.email "jenkins@luxe-jewelry.com"
-            git tag -a '${tagName}' -m 'Backend release ${imageTag} - automated by Jenkins'
-            git push origin '${tagName}'
-        """
-        echo "✅ Created and pushed Git tag: ${tagName}"
-    } else {
-        echo "ℹ️  Skipping Git tag creation for non-semantic version: ${imageTag}"
+    script {
+        def tagName = "backend/v${imageTag}"
+        
+        // Check if tag already exists
+        def tagExists = sh(returnStdout: true, script: "git tag -l '${tagName}'").trim()
+        
+        if (tagExists) {
+            echo "ℹ️  Tag ${tagName} already exists, skipping creation"
+            return
+        }
+        
+        // Validate semantic version format
+        if (imageTag ==~ /^\d+\.\d+\.\d+$/) {
+            sh """
+                git config user.name "Jenkins CI"
+                git config user.email "jenkins@luxe-jewelry.com"
+                git tag -a '${tagName}' -m 'Backend release ${imageTag} - automated by Jenkins'
+                git push origin '${tagName}'
+            """
+            echo "✅ Created and pushed Git tag: ${tagName}"
+        } else {
+            echo "ℹ️  Skipping Git tag creation for non-semantic version: ${imageTag}"
+        }
     }
 }
 
