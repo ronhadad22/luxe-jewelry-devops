@@ -280,7 +280,7 @@ pipeline {
                         return
                     }
                     
-                    BackendPipeline.createGitTag(env.IMAGE_TAG)
+                    BackendPipeline.createGitTag(this, env.IMAGE_TAG)
                 }
             }
         }

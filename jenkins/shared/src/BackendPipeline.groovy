@@ -216,7 +216,7 @@ class BackendPipeline {
     /**
      * Build Docker image with standard configuration
      */
-    static def buildDockerImage = { imageTag, ecrRegistry, ecrRepository, env ->
+    static def buildDockerImage(imageTag, ecrRegistry, ecrRepository) {
         def isPR = env.BRANCH_NAME?.startsWith('PR-')
         
         if (isPR) {
@@ -281,31 +281,31 @@ class BackendPipeline {
     /**
      * Create and push Git tag
      */
-    static def createGitTag(imageTag) {
+    static def createGitTag(steps, imageTag) {
         def tagName = "backend/v${imageTag}"
         
         // Check if tag already exists
-        def tagExists = sh(
+        def tagExists = steps.sh(
             script: "git tag -l '${tagName}'",
             returnStdout: true
         ).trim()
         
         if (tagExists) {
-            echo "ℹ️  Tag ${tagName} already exists, skipping creation"
+            steps.echo "ℹ️  Tag ${tagName} already exists, skipping creation"
             return
         }
         
         // Validate semantic version format
         if (imageTag ==~ /^\d+\.\d+\.\d+$/) {
-            sh """
+            steps.sh """
                 git config user.name "Jenkins CI"
                 git config user.email "jenkins@luxe-jewelry.com"
                 git tag -a '${tagName}' -m 'Backend release ${imageTag} - automated by Jenkins'
                 git push origin '${tagName}'
             """
-            echo "✅ Created and pushed Git tag: ${tagName}"
+            steps.echo "✅ Created and pushed Git tag: ${tagName}"
         } else {
-            echo "ℹ️  Skipping Git tag creation for non-semantic version: ${imageTag}"
+            steps.echo "ℹ️  Skipping Git tag creation for non-semantic version: ${imageTag}"
         }
     }
     
