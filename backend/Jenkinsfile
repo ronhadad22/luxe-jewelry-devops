@@ -1,10 +1,48 @@
-// Load shared pipeline library
-def backendPipeline = load 'jenkins/shared/BackendPipeline.groovy'
-
 pipeline {
     agent {
         kubernetes {
-            yaml backendPipeline.getPodTemplate()
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins-agent
+  containers:
+  - name: python
+    image: python:3.11-slim
+    command: ['cat']
+    tty: true
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+  - name: docker-aws
+    image: docker:24.0.6-dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+    - name: DOCKER_HOST
+      value: "tcp://localhost:2375"
+    command:
+    - sh
+    - -c
+    - |
+      # Install AWS CLI in the Docker container
+      apk add --no-cache aws-cli
+      dockerd-entrypoint.sh
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+    tty: true
+"""
         }
     }
     
@@ -19,6 +57,10 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+                script {
+                    // Load shared pipeline library after checkout
+                    backendPipeline = load 'jenkins/shared/BackendPipeline.groovy'
+                }
             }
         }
         
