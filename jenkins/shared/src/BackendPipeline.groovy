@@ -6,6 +6,22 @@
 class BackendPipeline {
     
     /**
+     * Determine if current build is executing for a pull request
+     */
+    static boolean isPullRequest(def env) {
+        def branchName = env?.BRANCH_NAME
+        return env?.CHANGE_ID || branchName?.startsWith('PR-') || branchName?.startsWith('backend/PR-')
+    }
+
+    /**
+     * Determine if current build is executing on the main release branch
+     */
+    static boolean isMainBranch(def env) {
+        def branchName = env?.BRANCH_NAME
+        return branchName in ['main', 'master']
+    }
+
+    /**
      * Common when conditions for backend stages
      */
     static def getCommonWhenConditions() {
@@ -128,6 +144,59 @@ class BackendPipeline {
     }
     
     /**
+     * Determine the next semantic release version
+     */
+    static def determineReleaseVersion(steps, env) {
+        def override = env?.RELEASE_VERSION_OVERRIDE
+        if (override) {
+            steps.echo "Using override release version: ${override}"
+            return override.trim()
+        }
+
+        def bumpType = (env?.RELEASE_BUMP_TYPE ?: 'patch').toLowerCase()
+        def supportedBumps = ['major', 'minor', 'patch']
+        if (!supportedBumps.contains(bumpType)) {
+            steps.echo "Unsupported RELEASE_BUMP_TYPE '${bumpType}', defaulting to 'patch'"
+            bumpType = 'patch'
+        }
+
+        def latestTag = getLatestBackendTag(steps)
+        if (!latestTag) {
+            steps.echo 'No previous backend tags found; starting at 0.1.0'
+            return '0.1.0'
+        }
+
+        def parts = latestTag.tokenize('.')
+        if (parts.size() != 3 || !parts.every { it.isInteger() }) {
+            steps.echo "Latest tag '${latestTag}' is not a valid semantic version; using fallback 0.1.0"
+            return '0.1.0'
+        }
+
+        def major = parts[0] as Integer
+        def minor = parts[1] as Integer
+        def patch = parts[2] as Integer
+
+        switch (bumpType) {
+            case 'major':
+                major++
+                minor = 0
+                patch = 0
+                break
+            case 'minor':
+                minor++
+                patch = 0
+                break
+            default:
+                patch++
+                break
+        }
+
+        def releaseVersion = "${major}.${minor}.${patch}"
+        steps.echo "Calculated next release version ${releaseVersion} (previous ${latestTag}, bump ${bumpType})"
+        return releaseVersion
+    }
+
+    /**
      * Get latest backend version tag
      */
     static def getLatestBackendTag(steps) {
@@ -214,6 +283,25 @@ class BackendPipeline {
     }
     
     /**
+     * Build a one-off validation image for PR builds (no push)
+     */
+    static def buildValidationImage(steps, env, ecrRegistry, ecrRepository) {
+        def buildNumber = env?.BUILD_NUMBER ?: 'local'
+        def validationTag = "pr-validation-${buildNumber}"
+
+        steps.echo "Building temporary validation image '${validationTag}' to ensure Dockerfile integrity"
+        steps.sh """
+            export DOCKER_HOST=tcp://localhost:2375
+            echo \"Waiting for Docker daemon...\"
+            sleep 10
+            docker version
+            docker build -t ${ecrRegistry}/${ecrRepository}:${validationTag} .
+            docker images --format \"table {{.Repository}}\t{{.Tag}}\t{{.ID}}\" | head -n 5
+            docker rmi ${ecrRegistry}/${ecrRepository}:${validationTag} || true
+        """
+    }
+
+    /**
      * Build Docker image with standard configuration
      */
     static def buildDockerImage(steps, env, imageTag, ecrRegistry, ecrRepository) {
@@ -278,7 +366,132 @@ class BackendPipeline {
         steps.echo "✅ Successfully pushed ${additionalTags.size() + 1} images to ECR"
         steps.echo "🔗 Primary image: ${ecrRegistry}/${ecrRepository}:${imageTag}"
     }
-    
+
+    /**
+     * Build the release image once and tag with environment-specific versions
+     */
+    static def buildAndTagReleaseImage(steps, env, releaseVersion, ecrRegistry, ecrRepository) {
+        def tempTag = "build-temp-${env?.BUILD_NUMBER ?: 'local'}"
+        def releaseTags = [
+            "${releaseVersion}-dev",
+            "${releaseVersion}-rc",
+            releaseVersion
+        ]
+
+        steps.echo "Building Docker image once with temporary tag '${tempTag}'"
+        steps.sh """
+            export DOCKER_HOST=tcp://localhost:2375
+            echo \"Waiting for Docker daemon...\"
+            sleep 10
+            docker version
+            docker build -t ${ecrRegistry}/${ecrRepository}:${tempTag} .
+        """
+
+        steps.echo "Tagging release image for environments: ${releaseTags.join(', ')}"
+        releaseTags.each { tag ->
+            steps.sh "docker tag ${ecrRegistry}/${ecrRepository}:${tempTag} ${ecrRegistry}/${ecrRepository}:${tag}"
+        }
+
+        return [tempTag: tempTag, releaseTags: releaseTags]
+    }
+
+    /**
+     * Push tagged release images to ECR
+     */
+    static void pushTaggedImages(steps, ecrRegistry, ecrRepository, releaseTags, awsRegion) {
+        if (!releaseTags) {
+            steps.echo 'No release tags provided, skipping push'
+            return
+        }
+
+        steps.sh """
+            export DOCKER_HOST=tcp://localhost:2375
+            echo \"Authenticating to ECR...\"
+            aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${ecrRegistry}
+        """
+
+        releaseTags.each { tag ->
+            steps.sh "docker push ${ecrRegistry}/${ecrRepository}:${tag}"
+        }
+
+        steps.echo "✅ Pushed ${releaseTags.size()} release images to ECR"
+    }
+
+    /**
+     * Update the GitOps dev environment manifest with the new image tag
+     */
+    static void updateGitOpsManifest(steps, env, releaseVersion) {
+        def repoUrl = env?.GITOPS_REPO_URL
+        if (!repoUrl) {
+            steps.echo 'No GitOps repository configured; skipping manifest update'
+            return
+        }
+
+        def credentialsId = env?.GITOPS_REPO_CREDENTIALS_ID
+        def repoWithoutProtocol = repoUrl.replaceFirst('^https?://', '')
+        def imageReference = "${env?.ECR_REGISTRY}/${env?.ECR_REPOSITORY}:${releaseVersion}-dev"
+
+        steps.sh 'apk add --no-cache git > /dev/null 2>&1 || true'
+
+        steps.dir('gitops-workspace') {
+            steps.deleteDir()
+
+            def cloneCommand = credentialsId ?
+                "git clone https://$GITOPS_USERNAME:$GITOPS_PASSWORD@${repoWithoutProtocol} repo" :
+                "git clone ${repoUrl} repo"
+
+            if (credentialsId) {
+                steps.withCredentials([
+                    steps.usernamePassword(
+                        credentialsId: credentialsId,
+                        passwordVariable: 'GITOPS_PASSWORD',
+                        usernameVariable: 'GITOPS_USERNAME'
+                    )
+                ]) {
+                    steps.sh """
+                        set -e
+                        ${cloneCommand}
+                    """
+                }
+            } else {
+                steps.sh """
+                    set -e
+                    ${cloneCommand}
+                """
+            }
+
+            steps.dir('repo') {
+                steps.sh """
+                    set -e
+                    mkdir -p dev
+                    if [ -f dev/values.yaml ]; then
+                        sed -i.bak -E 's|image:\\s*.*|image: ${imageReference}|' dev/values.yaml
+                    else
+                        echo "image: ${imageReference}" > dev/values.yaml
+                    fi
+                    rm -f dev/values.yaml.bak
+                """
+
+                steps.sh """
+                    set -e
+                    git config user.name '${env?.GITOPS_COMMIT_USER ?: 'Jenkins CI'}'
+                    git config user.email '${env?.GITOPS_COMMIT_EMAIL ?: 'jenkins@luxe-jewelry.com'}'
+                """
+
+                steps.sh """
+                    set -e
+                    if git status --short | grep -q .; then
+                        git add dev/values.yaml
+                        git commit -m 'Update dev image to ${imageReference}'
+                        git push origin HEAD
+                    else
+                        echo 'No manifest changes detected; skipping commit'
+                    fi
+                """
+            }
+        }
+    }
+
     /**
      * Create and push Git tag
      */

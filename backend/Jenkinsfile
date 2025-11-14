@@ -21,254 +21,143 @@ pipeline {
             }
         }
         
-        stage('Version Info') {
+        stage('Lint & Unit Tests') {
             when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
-            }
-            steps {
-                script {
-                    // Use Jenkins built-in environment variables
-                    def branchName = env.BRANCH_NAME ?: 'unknown'
-                    def buildNumber = env.BUILD_NUMBER ?: '0'
-                    def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
-                    
-                    // Get latest backend version using shared function
-                    def latestTag = BackendPipeline.getLatestBackendTag(this)
-                    def hasServiceTags = sh(
-                        script: "git tag --list 'backend/v*' | head -n1",
-                        returnStdout: true
-                    ).trim()
-                    
-                    // Generate image tag using shared function
-                    def imageTag = BackendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
-                    
-                    // Set as environment variable for other stages
-                    env.IMAGE_TAG = imageTag
-                    
-                    echo "🏷️  Version Information:"
-                    echo "   Service: ${SERVICE_NAME}"
-                    echo "   Branch: ${branchName}"
-                    echo "   Image Tag: ${imageTag}"
-                    echo "   Build Number: ${buildNumber}"
-                    echo "   Commit SHA: ${commitSha}"
-                    echo "   Latest Service Tag: ${hasServiceTags ? "backend/v${latestTag}" : "None (first release)"}"
-                }
-            }
-        }
-        
-        stage('Setup Python Environment') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
+                expression { BackendPipeline.isPullRequest(env) || BackendPipeline.isMainBranch(env) }
             }
             steps {
                 container('python') {
                     dir('backend') {
                         script {
                             BackendPipeline.setupPythonEnvironment(this)
+                            BackendPipeline.runLinting(this)
+                            BackendPipeline.runTests(this)
                         }
                     }
                 }
             }
-        }
-        
-        stage('Lint Code') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
+            post {
+                always {
+                    dir('backend') {
+                        junit testResults: 'test-results.xml', allowEmptyResults: false
+                        publishHTML([
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: 'htmlcov',
+                            reportFiles: 'index.html',
+                            reportName: 'Coverage Report'
+                        ])
                     }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
                 }
+            }
+        }
+
+        stage('Static Analysis') {
+            when {
+                expression { BackendPipeline.isPullRequest(env) || BackendPipeline.isMainBranch(env) }
             }
             steps {
                 container('python') {
                     dir('backend') {
                         script {
-                            try {
-                                BackendPipeline.runLinting(this)
-                            } catch (Exception e) {
-                                echo "⚠️ Linting issues found, but continuing pipeline..."
-                                echo "Error: ${e.getMessage()}"
-                                currentBuild.result = 'UNSTABLE'
-                            }
+                            BackendPipeline.runSecurityScans(this)
                         }
                     }
                 }
             }
         }
-        
-        stage('Test & Security') {
+
+        stage('PR Validation Image Build') {
             when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
-            }
-            parallel {
-                stage('Run Tests') {
-                    steps {
-                        container('python') {
-                            dir('backend') {
-                                script {
-                                    BackendPipeline.setupPythonEnvironment(this)
-                                    BackendPipeline.runTests(this)
-                                }
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            dir('backend') {
-                                junit testResults: 'test-results.xml', allowEmptyResults: true
-                                publishHTML([
-                                    allowMissing: false,
-                                    alwaysLinkToLastBuild: true,
-                                    keepAll: true,
-                                    reportDir: 'htmlcov',
-                                    reportFiles: 'index.html',
-                                    reportName: 'Coverage Report'
-                                ])
-                            }
-                        }
-                    }
-                }
-                stage('Security Scan') {
-                    steps {
-                        container('python') {
-                            dir('backend') {
-                                script {
-                                    BackendPipeline.runSecurityScans(this)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        
-        stage('Build Docker Image') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
+                expression { BackendPipeline.isPullRequest(env) }
             }
             steps {
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            def additionalTags = BackendPipeline.buildDockerImage(
+                            BackendPipeline.buildValidationImage(
                                 this,
                                 env,
-                                env.IMAGE_TAG,
                                 env.ECR_REGISTRY,
                                 env.ECR_REPOSITORY
                             )
-                            env.ADDITIONAL_TAGS = additionalTags.join(',')
                         }
                     }
                 }
             }
         }
-        
-        stage('Push to ECR') {
+
+        stage('Determine Release Version') {
             when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
+                expression { BackendPipeline.isMainBranch(env) }
+            }
+            steps {
+                script {
+                    def releaseVersion = BackendPipeline.determineReleaseVersion(this, env)
+                    env.RELEASE_VERSION = releaseVersion
+                    env.RELEASE_TAGS = [
+                        "${releaseVersion}-dev",
+                        "${releaseVersion}-rc",
+                        releaseVersion
+                    ].join(',')
+                    echo "Release version determined: ${releaseVersion}"
+                    echo "Release tags: ${env.RELEASE_TAGS}"
                 }
-                not {
-                    anyOf {
-                        branch 'PR-*'
-                        branch 'backend/PR-*'
-                    }
-                }
+            }
+        }
+
+        stage('Build Release Image') {
+            when {
+                expression { BackendPipeline.isMainBranch(env) }
             }
             steps {
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            def additionalTags = env.ADDITIONAL_TAGS?.split(',') ?: []
-                            BackendPipeline.pushToEcr(
+                            def result = BackendPipeline.buildAndTagReleaseImage(
                                 this,
-                                env.IMAGE_TAG,
+                                env,
+                                env.RELEASE_VERSION,
                                 env.ECR_REGISTRY,
-                                env.ECR_REPOSITORY,
-                                additionalTags,
-                                env.AWS_DEFAULT_REGION
+                                env.ECR_REPOSITORY
                             )
+                            env.RELEASE_TEMP_TAG = result.tempTag
+                            env.RELEASE_TAGS = result.releaseTags.join(',')
                         }
                     }
                 }
             }
         }
+
+        stage('Push Release Images') {
+            when {
+                expression { BackendPipeline.isMainBranch(env) }
+            }
+            steps {
+                container('docker-aws') {
+                    script {
+                        def tags = env.RELEASE_TAGS?.split(',')?.collect { it.trim() }?.findAll { it }
+                        BackendPipeline.pushTaggedImages(
+                            this,
+                            env.ECR_REGISTRY,
+                            env.ECR_REPOSITORY,
+                            tags,
+                            env.AWS_DEFAULT_REGION
+                        )
+                    }
+                }
+            }
+        }
+
+        // TODO: GitOps manifest updates will be handled in a dedicated CD pipeline.
+        // CI intentionally stops after publishing release images.
     }
     
     post {
         always {
             archiveArtifacts artifacts: 'backend/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', allowEmptyArchive: true
+            cleanWs()
         }
         success {
             echo "✅ Backend Service CI pipeline completed successfully!"
