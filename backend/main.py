@@ -157,7 +157,11 @@ user_carts_db = {}
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Luxe Jewelry Store API", "version": "1.1.0", "feature": "api-improvements"}
+    return {
+        "message": "Welcome to Luxe Jewelry Store API",
+        "version": "1.1.0",
+        "feature": "api-improvements",
+    }
 
 
 @app.get("/health")

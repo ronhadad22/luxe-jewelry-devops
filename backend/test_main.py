@@ -9,7 +9,10 @@ def test_root_endpoint():
     """Test the root endpoint"""
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Welcome to Luxe Jewelry Store API"}
+    data = response.json()
+    assert data["message"] == "Welcome to Luxe Jewelry Store API"
+    assert data["version"] == "1.1.0"
+    assert data["feature"] == "api-improvements"
 
 
 def test_health_check():
@@ -19,7 +22,7 @@ def test_health_check():
     data = response.json()
     assert data["status"] == "healthy"
     assert data["service"] == "backend"
-    assert data["version"] == "1.1.1"
+    assert data["version"] == "1.1.0"
     assert "timestamp" in data
     assert data["uptime"] == "running"
     assert data["database"] == "connected"
