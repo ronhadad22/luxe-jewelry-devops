@@ -1,49 +1,10 @@
+// Load shared pipeline library
+def backendPipeline = load 'jenkins/shared/BackendPipeline.groovy'
+
 pipeline {
     agent {
         kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  serviceAccountName: jenkins-agent
-  containers:
-  - name: python
-    image: python:3.11-slim
-    command:
-    - cat
-    tty: true
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "100m"
-      limits:
-        memory: "512Mi" 
-        cpu: "500m"
-  - name: docker-aws
-    image: docker:24.0.6-dind
-    securityContext:
-      privileged: true
-    env:
-    - name: DOCKER_TLS_CERTDIR
-      value: ""
-    - name: DOCKER_HOST
-      value: "tcp://localhost:2375"
-    command:
-    - sh
-    - -c
-    - |
-      # Install AWS CLI in the Docker container
-      apk add --no-cache aws-cli
-      dockerd-entrypoint.sh
-    tty: true
-    resources:
-      requests:
-        memory: "512Mi"
-        cpu: "200m"
-      limits:
-        memory: "1Gi"
-        cpu: "1000m"
-"""
+            yaml backendPipeline.getPodTemplate()
         }
     }
     
@@ -62,22 +23,7 @@ spec:
         }
         
         stage('Version Info') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
-            }
+            when(backendPipeline.getCommonWhenConditions())
             steps {
                 script {
                     // Use Jenkins built-in environment variables
@@ -85,92 +31,15 @@ spec:
                     def buildNumber = env.BUILD_NUMBER ?: '0'
                     def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
                     
-                    // Get latest service-specific tag
-                    def latestTag = ''
-                    def hasServiceTags = false
+                    // Get latest backend version using shared function
+                    def latestTag = backendPipeline.getLatestBackendTag()
+                    def hasServiceTags = sh(
+                        script: "git tag --list 'backend/v*' | head -n1",
+                        returnStdout: true
+                    ).trim()
                     
-                    try {
-                        latestTag = sh(
-                            script: 'git tag --list --sort=-version:refname "backend/v*" | head -n1',
-                            returnStdout: true
-                        ).trim()
-                        
-                        if (latestTag) {
-                            latestTag = latestTag.replaceAll('backend/v', '')
-                            hasServiceTags = true
-                        }
-                    } catch (Exception e) {
-                        latestTag = ''
-                    }
-                    
-                    // If no service-specific tags, use smart defaults
-                    if (!hasServiceTags) {
-                        try {
-                            def commitCount = sh(
-                                script: 'git rev-list --count HEAD',
-                                returnStdout: true
-                            ).trim() as Integer
-                            
-                            if (commitCount > 100) {
-                                latestTag = '0.1.0'
-                                echo "📋 No version tags found, mature project detected (${commitCount} commits) - starting with 0.1.0"
-                            } else {
-                                latestTag = '0.0.1'
-                                echo "📋 No version tags found, new project detected (${commitCount} commits) - starting with 0.0.1"
-                            }
-                        } catch (Exception e) {
-                            latestTag = '0.0.1'
-                            echo "⚠️ Could not determine version, using fallback: 0.0.1"
-                        }
-                    }
-                    
-                    // Generate image tag based on branch
-                    def imageTag = ''
-                    switch (branchName) {
-                        case 'main':
-                        case 'master':
-                            imageTag = latestTag
-                            break
-                        case 'develop':
-                        case 'development':
-                            imageTag = "${latestTag}-dev.${buildNumber}.${commitSha}"
-                            break
-                        case 'be/release':
-                        case 'backend/release':
-                            // Backend release branch - increment patch version for new release
-                            def versionParts = latestTag.split('\\.')
-                            def patch = (versionParts[2] as Integer) + 1
-                            imageTag = "${versionParts[0]}.${versionParts[1]}.${patch}"
-                            break
-                        case ~/^backend\/release\/.*/:
-                            def releaseVersion = branchName.replaceAll('backend/release/', '')
-                            imageTag = "${releaseVersion}-rc.${buildNumber}"
-                            break
-                        case ~/^release\/.*/:
-                            def releaseVersion = branchName.replaceAll('release/', '')
-                            imageTag = "${releaseVersion}"
-                            break
-                        case ~/^feature\/backend\/.*/:
-                            def featureParts = branchName.split('/')
-                            def featureName = featureParts.length > 3 ? featureParts[3] : 'feature'
-                            def targetVersion = featureParts.length > 2 ? featureParts[2] : latestTag
-                            imageTag = "${targetVersion}-${featureName}.${buildNumber}.${commitSha}"
-                            break
-                        case ~/^patch\/backend\/.*/:
-                            def patchParts = branchName.split('/')
-                            def patchName = patchParts.length > 3 ? patchParts[3] : 'patch'
-                            def targetVersion = patchParts.length > 2 ? patchParts[2] : latestTag
-                            imageTag = "${targetVersion}-${patchName}.${buildNumber}.${commitSha}"
-                            break
-                        case ~/^feature\/.*/:
-                            def featureName = branchName.replaceAll('feature/', '').replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
-                            imageTag = "${latestTag}-${featureName}.${buildNumber}.${commitSha}"
-                            break
-                        default:
-                            def cleanBranch = branchName.replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()
-                            imageTag = "${latestTag}-${cleanBranch}.${buildNumber}.${commitSha}"
-                            break
-                    }
+                    // Generate image tag using shared function
+                    def imageTag = backendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
                     
                     // Set as environment variable for other stages
                     env.IMAGE_TAG = imageTag
@@ -187,63 +56,26 @@ spec:
         }
         
         stage('Setup Python Environment') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
-            }
+            when(backendPipeline.getCommonWhenConditions())
             steps {
                 container('python') {
                     dir('backend') {
-                        sh '''
-                            python -m venv venv
-                            . venv/bin/activate
-                            pip install --upgrade pip
-                            pip install -r requirements.txt
-                        '''
+                        script {
+                            backendPipeline.setupPythonEnvironment()
+                        }
                     }
                 }
             }
         }
         
         stage('Lint Code') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
-            }
+            when(backendPipeline.getCommonWhenConditions())
             steps {
                 container('python') {
                     dir('backend') {
                         script {
                             try {
-                                sh '''
-                                    . venv/bin/activate
-                                    pip install flake8 black isort
-                                    
-                                    echo "Running code formatting checks..."
-                                    black --check --diff . --exclude="venv/"
-                                    
-                                    echo "Running flake8 linting..."
-                                    flake8 . --max-line-length=88 --extend-ignore=E203,W503 --exclude=venv/
-                                    
-                                    echo "Running import sorting checks..."
-                                    isort --check-only --diff . --skip-glob="venv/*"
-                                    
-                                    echo "✅ All linting checks passed!"
-                                '''
+                                backendPipeline.runLinting()
                             } catch (Exception e) {
                                 echo "⚠️ Linting issues found, but continuing pipeline..."
                                 echo "Error: ${e.getMessage()}"
@@ -256,28 +88,15 @@ spec:
         }
         
         stage('Test & Security') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                    changelog ''
-                }
-            }
+            when(backendPipeline.getCommonWhenConditions())
             parallel {
                 stage('Run Tests') {
                     steps {
                         container('python') {
                             dir('backend') {
-                                sh '''
-                                    . venv/bin/activate
-                                    pip install pytest pytest-cov pytest-asyncio
-                                    echo "Running tests..."
-                                    pytest --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml || true
-                                '''
+                                script {
+                                    backendPipeline.runTests()
+                                }
                             }
                         }
                     }
@@ -301,14 +120,9 @@ spec:
                     steps {
                         container('python') {
                             dir('backend') {
-                                sh '''
-                                    . venv/bin/activate
-                                    pip install bandit safety pip-audit
-                                    echo "Running security scans..."
-                                    bandit -r . -f json -o bandit-report.json --exclude="./venv" || true
-                                    safety check --json --output safety-report.json || true
-                                    pip-audit --format=json --output=pip-audit-report.json || true
-                                '''
+                                script {
+                                    backendPipeline.runSecurityScans()
+                                }
                             }
                         }
                     }
@@ -318,76 +132,17 @@ spec:
         
         
         stage('Build Docker Image') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                }
-            }
+            when(backendPipeline.getCommonWhenConditions())
             steps {
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            // Check if this is a PR build
-                            def isPR = env.BRANCH_NAME?.startsWith('PR-')
-                            if (isPR) {
-                                echo "🔍 PR Build: Building image for validation (will NOT push to ECR)"
-                            } else {
-                                echo "🚀 Production Build: Building image for deployment"
-                            }
-                            
-                            sh '''
-                                export DOCKER_HOST=tcp://localhost:2375
-                                echo "Waiting for Docker daemon..."
-                                sleep 10
-                                docker version
-                                echo "Building Docker image: ${IMAGE_TAG}"
-                                docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
-                            '''
-                            
-                            // Create additional tags based on branch context
-                            def additionalTags = []
-                            def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
-                            
-                            // Always tag with commit SHA
-                            additionalTags.add("commit-${commitSha}")
-                            additionalTags.add("build-${BUILD_NUMBER}")
-                            
-                            // Branch-specific tags
-                            switch (BRANCH_NAME) {
-                                case 'main':
-                                case 'master':
-                                    additionalTags.add('latest')
-                                    additionalTags.add('stable')
-                                    break
-                                case 'develop':
-                                case 'development':
-                                    additionalTags.add('latest-dev')
-                                    break
-                                case ~/^release\/.*/:
-                                    additionalTags.add('latest-rc')
-                                    break
-                                default:
-                                    additionalTags.add("latest-${BRANCH_NAME.replaceAll('[^a-zA-Z0-9]', '-').toLowerCase()}")
-                                    break
-                            }
-                            
-                            // Create all additional tags
-                            echo "Creating additional tags: ${additionalTags.join(', ')}"
-                            for (tag in additionalTags) {
-                                sh "docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${tag}"
-                            }
-                            
-                            echo "✅ Docker image built successfully with ${additionalTags.size() + 1} tags"
+                            def additionalTags = backendPipeline.buildDockerImage(
+                                env.IMAGE_TAG, 
+                                env.ECR_REGISTRY, 
+                                env.ECR_REPOSITORY
+                            )
+                            env.ADDITIONAL_TAGS = additionalTags.join(',')
                         }
                     }
                 }
@@ -395,51 +150,19 @@ spec:
         }
         
         stage('Push to ECR') {
-            when {
-                anyOf {
-                    changeset "backend/**"
-                    triggeredBy cause: "UserIdCause"
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/release/*'
-                    branch 'feature/backend/*'
-                    branch 'patch/backend/*'
-                }
-                not {
-                    anyOf {
-                        branch 'PR-*'
-                        branch 'backend/PR-*'
-                    }
-                }
-            }
+            when(backendPipeline.getEcrPushWhenConditions())
             steps {
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            sh '''
-                                export DOCKER_HOST=tcp://localhost:2375
-                                echo "Authenticating to ECR..."
-                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                            '''
-                            
-                            // Get all image tags
-                            def imageTags = sh(
-                                script: "docker images ${ECR_REGISTRY}/${ECR_REPOSITORY} --format '{{.Tag}}' | grep -v '<none>'",
-                                returnStdout: true
-                            ).trim().split('\n')
-                            
-                            echo "📦 Pushing ${imageTags.size()} tags to ECR:"
-                            for (tag in imageTags) {
-                                if (tag.trim()) {
-                                    echo "   Pushing: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${tag}"
-                                    sh "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${tag}"
-                                }
-                            }
-                            
-                            echo "✅ Successfully pushed all tags to ECR"
-                            echo "🔗 Primary image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                            def additionalTags = env.ADDITIONAL_TAGS?.split(',') ?: []
+                            backendPipeline.pushToEcr(
+                                env.IMAGE_TAG,
+                                env.ECR_REGISTRY,
+                                env.ECR_REPOSITORY,
+                                additionalTags,
+                                env.AWS_DEFAULT_REGION
+                            )
                         }
                     }
                 }
@@ -447,16 +170,7 @@ spec:
         }
         
         stage('Create Git Tag') {
-            when {
-                anyOf {
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
-                    }
-                    branch 'backend/release/*'
-                    branch 'release/*'
-                }
-            }
+            when(backendPipeline.getGitTagWhenConditions())
             steps {
                 script {
                     // Check if IMAGE_TAG is available (Version Info stage ran)
@@ -465,54 +179,7 @@ spec:
                         return
                     }
                     
-                    def shouldTag = false
-                    def tagName = ""
-                    
-                    switch (BRANCH_NAME) {
-                        case 'main':
-                        case 'master':
-                            // Only tag if this is a clean semantic version (no pre-release identifiers)
-                            if (IMAGE_TAG ==~ /^\d+\.\d+\.\d+$/) {
-                                shouldTag = true
-                                tagName = "backend/v${IMAGE_TAG}"
-                            }
-                            break
-                        case 'be/release':
-                        case 'backend/release':
-                            // Backend release branch - create final release tag
-                            shouldTag = true
-                            tagName = "backend/v${IMAGE_TAG}"
-                            break
-                        case ~/^release\/.*/:
-                            // Tag release candidates
-                            shouldTag = true
-                            tagName = "backend/v${IMAGE_TAG}"
-                            break
-                    }
-                    
-                    if (shouldTag) {
-                        echo "🏷️  Creating Git tag: ${tagName}"
-                        
-                        // Check if tag already exists
-                        def tagExists = sh(
-                            script: "git tag -l '${tagName}'",
-                            returnStdout: true
-                        ).trim()
-                        
-                        if (!tagExists) {
-                            sh """
-                                git config user.name "Jenkins CI"
-                                git config user.email "jenkins@luxe-jewelry.com"
-                                git tag -a '${tagName}' -m 'Release ${SERVICE_NAME} version ${IMAGE_TAG}'
-                                git push origin '${tagName}'
-                            """
-                            echo "✅ Created and pushed Git tag: ${tagName}"
-                        } else {
-                            echo "⚠️  Tag ${tagName} already exists, skipping"
-                        }
-                    } else {
-                        echo "ℹ️  Skipping Git tag creation for ${BRANCH_NAME} with version ${IMAGE_TAG}"
-                    }
+                    backendPipeline.createGitTag(env.IMAGE_TAG)
                 }
             }
         }
