@@ -130,8 +130,8 @@ class BackendPipeline {
     /**
      * Get latest backend version tag
      */
-    static def getLatestBackendTag() {
-        def latestTag = sh(
+    static def getLatestBackendTag(steps) {
+        def latestTag = steps.sh(
             script: "git tag --list --sort=-version:refname 'backend/v*' | head -n1",
             returnStdout: true
         ).trim()
@@ -141,7 +141,7 @@ class BackendPipeline {
         }
         
         // Fallback to global tags if no service-specific tags
-        def globalTag = sh(
+        def globalTag = steps.sh(
             script: "git tag --list --sort=-version:refname 'v*' | head -n1",
             returnStdout: true
         ).trim()
@@ -151,7 +151,7 @@ class BackendPipeline {
         }
         
         // Final fallback based on commit count
-        def commitCount = sh(
+        def commitCount = steps.sh(
             script: "git rev-list --count HEAD",
             returnStdout: true
         ).trim() as Integer
@@ -162,8 +162,8 @@ class BackendPipeline {
     /**
      * Setup Python environment with common dependencies
      */
-    static def setupPythonEnvironment() {
-        sh '''
+    static def setupPythonEnvironment(steps) {
+        steps.sh '''
             python -m venv venv
             . venv/bin/activate
             pip install --upgrade pip
@@ -174,8 +174,8 @@ class BackendPipeline {
     /**
      * Run code linting with common tools
      */
-    static def runLinting() {
-        sh '''
+    static def runLinting(steps) {
+        steps.sh '''
             . venv/bin/activate
             pip install flake8 black isort
             echo "Running code formatting checks..."
@@ -190,8 +190,8 @@ class BackendPipeline {
     /**
      * Run tests with coverage
      */
-    static def runTests() {
-        sh '''
+    static def runTests(steps) {
+        steps.sh '''
             . venv/bin/activate
             pip install pytest pytest-cov pytest-asyncio
             echo "Running tests..."
@@ -202,8 +202,8 @@ class BackendPipeline {
     /**
      * Run security scans
      */
-    static def runSecurityScans() {
-        sh '''
+    static def runSecurityScans(steps) {
+        steps.sh '''
             . venv/bin/activate
             pip install bandit safety pip-audit
             echo "Running security scans..."
@@ -216,16 +216,16 @@ class BackendPipeline {
     /**
      * Build Docker image with standard configuration
      */
-    static def buildDockerImage(imageTag, ecrRegistry, ecrRepository) {
-        def isPR = env.BRANCH_NAME?.startsWith('PR-')
+    static def buildDockerImage(steps, env, imageTag, ecrRegistry, ecrRepository) {
+        def isPR = env?.BRANCH_NAME?.startsWith('PR-')
         
         if (isPR) {
-            echo "🔍 PR Build: Building image for validation (will NOT push to ECR)"
+            steps.echo "🔍 PR Build: Building image for validation (will NOT push to ECR)"
         } else {
-            echo "🚀 Production Build: Building image for deployment"
+            steps.echo "🚀 Production Build: Building image for deployment"
         }
         
-        sh """
+        steps.sh """
             export DOCKER_HOST=tcp://localhost:2375
             echo "Waiting for Docker daemon..."
             sleep 10
@@ -235,23 +235,24 @@ class BackendPipeline {
         """
         
         // Create additional tags
-        def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
-        def additionalTags = ["commit-${commitSha}", "build-${env.BUILD_NUMBER}"]
+        def commitSha = env?.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
+        def buildNumber = env?.BUILD_NUMBER ?: 'unknown'
+        def additionalTags = ["commit-${commitSha}", "build-${buildNumber}"]
         
         if (isPR) {
-            def prNumber = env.BRANCH_NAME.replaceAll('PR-', '')
+            def prNumber = env?.BRANCH_NAME?.replaceAll('PR-', '') ?: 'unknown'
             additionalTags.add("latest-pr-${prNumber}")
         } else {
             additionalTags.addAll(["latest", "stable"])
         }
         
-        echo "Creating additional tags: ${additionalTags.join(', ')}"
+        steps.echo "Creating additional tags: ${additionalTags.join(', ')}"
         
         additionalTags.each { tag ->
-            sh "docker tag ${ecrRegistry}/${ecrRepository}:${imageTag} ${ecrRegistry}/${ecrRepository}:${tag}"
+            steps.sh "docker tag ${ecrRegistry}/${ecrRepository}:${imageTag} ${ecrRegistry}/${ecrRepository}:${tag}"
         }
         
-        echo "✅ Docker image built successfully with ${additionalTags.size() + 1} tags"
+        steps.echo "✅ Docker image built successfully with ${additionalTags.size() + 1} tags"
         
         return additionalTags
     }
@@ -259,8 +260,8 @@ class BackendPipeline {
     /**
      * Push Docker image to ECR
      */
-    static def pushToEcr(imageTag, ecrRegistry, ecrRepository, additionalTags, awsRegion) {
-        sh """
+    static def pushToEcr(steps, imageTag, ecrRegistry, ecrRepository, additionalTags, awsRegion) {
+        steps.sh """
             export DOCKER_HOST=tcp://localhost:2375
             echo "Authenticating to ECR..."
             aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${ecrRegistry}
@@ -271,11 +272,11 @@ class BackendPipeline {
         
         // Push additional tags
         additionalTags.each { tag ->
-            sh "docker push ${ecrRegistry}/${ecrRepository}:${tag}"
+            steps.sh "docker push ${ecrRegistry}/${ecrRepository}:${tag}"
         }
         
-        echo "✅ Successfully pushed ${additionalTags.size() + 1} images to ECR"
-        echo "🔗 Primary image: ${ecrRegistry}/${ecrRepository}:${imageTag}"
+        steps.echo "✅ Successfully pushed ${additionalTags.size() + 1} images to ECR"
+        steps.echo "🔗 Primary image: ${ecrRegistry}/${ecrRepository}:${imageTag}"
     }
     
     /**

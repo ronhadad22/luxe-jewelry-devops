@@ -46,14 +46,14 @@ pipeline {
                     def commitSha = env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'
                     
                     // Get latest backend version using shared function
-                    def latestTag = backendPipeline.getLatestBackendTag()
+                    def latestTag = BackendPipeline.getLatestBackendTag(this)
                     def hasServiceTags = sh(
                         script: "git tag --list 'backend/v*' | head -n1",
                         returnStdout: true
                     ).trim()
                     
                     // Generate image tag using shared function
-                    def imageTag = backendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
+                    def imageTag = BackendPipeline.generateImageTag(branchName, latestTag, buildNumber, commitSha)
                     
                     // Set as environment variable for other stages
                     env.IMAGE_TAG = imageTag
@@ -90,7 +90,7 @@ pipeline {
                 container('python') {
                     dir('backend') {
                         script {
-                            backendPipeline.setupPythonEnvironment()
+                            BackendPipeline.setupPythonEnvironment(this)
                         }
                     }
                 }
@@ -119,7 +119,7 @@ pipeline {
                     dir('backend') {
                         script {
                             try {
-                                backendPipeline.runLinting()
+                                BackendPipeline.runLinting(this)
                             } catch (Exception e) {
                                 echo "⚠️ Linting issues found, but continuing pipeline..."
                                 echo "Error: ${e.getMessage()}"
@@ -154,7 +154,7 @@ pipeline {
                         container('python') {
                             dir('backend') {
                                 script {
-                                    backendPipeline.setupPythonEnvironment()
+                                    BackendPipeline.setupPythonEnvironment(this)
                                 }
                             }
                         }
@@ -180,7 +180,7 @@ pipeline {
                         container('python') {
                             dir('backend') {
                                 script {
-                                    backendPipeline.runSecurityScans()
+                                    BackendPipeline.runSecurityScans(this)
                                 }
                             }
                         }
@@ -211,9 +211,11 @@ pipeline {
                 container('docker-aws') {
                     dir('backend') {
                         script {
-                            def additionalTags = backendPipeline.buildDockerImage(
-                                env.IMAGE_TAG, 
-                                env.ECR_REGISTRY, 
+                            def additionalTags = BackendPipeline.buildDockerImage(
+                                this,
+                                env,
+                                env.IMAGE_TAG,
+                                env.ECR_REGISTRY,
                                 env.ECR_REPOSITORY
                             )
                             env.ADDITIONAL_TAGS = additionalTags.join(',')
@@ -248,7 +250,8 @@ pipeline {
                     dir('backend') {
                         script {
                             def additionalTags = env.ADDITIONAL_TAGS?.split(',') ?: []
-                            backendPipeline.pushToEcr(
+                            BackendPipeline.pushToEcr(
+                                this,
                                 env.IMAGE_TAG,
                                 env.ECR_REGISTRY,
                                 env.ECR_REPOSITORY,
