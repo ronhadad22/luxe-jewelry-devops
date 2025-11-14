@@ -147,6 +147,8 @@ async def get_current_user(user_id: str = Depends(verify_token)):
                 return response.json()
     except Exception:
         pass
+
+
 # In-memory cart storage (in production, use database with user sessions)
 carts_db = {}
 # User-based carts (for authenticated users)

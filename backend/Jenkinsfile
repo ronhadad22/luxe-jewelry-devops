@@ -180,7 +180,7 @@ pipeline {
                         container('python') {
                             dir('backend') {
                                 script {
-                                    BackendPipeline.runSecurityScans()
+                                    backendPipeline.runSecurityScans()
                                 }
                             }
                         }
