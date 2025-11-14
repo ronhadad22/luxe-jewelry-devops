@@ -216,7 +216,7 @@ class BackendPipeline {
     /**
      * Build Docker image with standard configuration
      */
-    static def buildDockerImage(imageTag, ecrRegistry, ecrRepository) {
+    static def buildDockerImage = { imageTag, ecrRegistry, ecrRepository, env ->
         def isPR = env.BRANCH_NAME?.startsWith('PR-')
         
         if (isPR) {

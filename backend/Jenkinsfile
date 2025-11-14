@@ -214,7 +214,8 @@ pipeline {
                             def additionalTags = BackendPipeline.buildDockerImage(
                                 env.IMAGE_TAG, 
                                 env.ECR_REGISTRY, 
-                                env.ECR_REPOSITORY
+                                env.ECR_REPOSITORY,
+                                env
                             )
                             env.ADDITIONAL_TAGS = additionalTags.join(',')
                         }
