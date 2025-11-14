@@ -155,6 +155,7 @@ pipeline {
                             dir('backend') {
                                 script {
                                     BackendPipeline.setupPythonEnvironment(this)
+                                    BackendPipeline.runTests(this)
                                 }
                             }
                         }
