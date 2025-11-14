@@ -167,7 +167,7 @@ def createGitTag(imageTag) {
     def tagName = "backend/v${imageTag}"
     
     // Check if tag already exists
-    def tagExists = sh(script: "git tag -l '${tagName}'", returnStdout: true).trim()
+    def tagExists = sh(returnStdout: true, script: "git tag -l '${tagName}'").trim()
     
     if (tagExists) {
         echo "ℹ️  Tag ${tagName} already exists, skipping creation"
