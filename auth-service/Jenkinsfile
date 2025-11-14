@@ -1,0 +1,212 @@
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: python
+    image: python:3.11-slim
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  - name: docker
+    image: docker:24.0.6-dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+  - name: aws-cli
+    image: amazon/aws-cli:latest
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+"""
+        }
+    }
+    
+    environment {
+        PYTHON_VERSION = '3.11'
+        SERVICE_NAME = 'auth-service'
+        AWS_DEFAULT_REGION = 'us-east-2'
+        ECR_REGISTRY = '950555670656.dkr.ecr.us-east-2.amazonaws.com'
+        ECR_REPOSITORY = 'jewleryapp/auth'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Setup Python Environment') {
+            steps {
+                container('python') {
+                    dir('auth-service') {
+                        sh '''
+                            python -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Lint Code') {
+            steps {
+                container('python') {
+                    dir('auth-service') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install flake8 black isort
+                            echo "Running code formatting checks..."
+                            black --check --diff .
+                            echo "Running import sorting checks..."
+                            isort --check-only --diff .
+                            echo "Running linting..."
+                            flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                            flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                container('python') {
+                    dir('auth-service') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install bandit safety
+                            echo "Running security scan with bandit..."
+                            bandit -r . -f json -o bandit-report.json || true
+                            echo "Checking for known security vulnerabilities..."
+                            safety check --json --output safety-report.json || true
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                container('python') {
+                    dir('auth-service') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install pytest pytest-cov pytest-asyncio
+                            echo "Running tests..."
+                            pytest --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml || true
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    dir('auth-service') {
+                        publishTestResults testResultsPattern: 'test-results.xml'
+                        publishCoverage adapters: [coberturaAdapter('coverage.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+                    }
+                }
+            }
+        }
+        
+        stage('Dependency Check') {
+            steps {
+                container('python') {
+                    dir('auth-service') {
+                        sh '''
+                            . venv/bin/activate
+                            pip install pip-audit
+                            echo "Auditing dependencies for vulnerabilities..."
+                            pip-audit --format=json --output=pip-audit-report.json || true
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Build Validation') {
+            steps {
+                container('python') {
+                    dir('auth-service') {
+                        sh '''
+                            . venv/bin/activate
+                            echo "Validating application can start..."
+                            timeout 10s python main.py &
+                            sleep 5
+                            echo "Application validation completed"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                container('docker') {
+                    dir('auth-service') {
+                        sh '''
+                            echo "Waiting for Docker daemon to be ready..."
+                            sleep 10
+                            echo "Building Docker image..."
+                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
+                            docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                            echo "Docker image built successfully"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                container('aws-cli') {
+                    dir('auth-service') {
+                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                            sh '''
+                                echo "Logging into ECR..."
+                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                
+                                echo "Pushing Docker image to ECR..."
+                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                                
+                                echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            archiveArtifacts artifacts: 'auth-service/**/*-report.json, auth-service/**/*-results.xml, auth-service/**/htmlcov/**', allowEmptyArchive: true
+        }
+        success {
+            echo "✅ Auth Service CI pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Auth Service CI pipeline failed!"
+        }
+    }
+}

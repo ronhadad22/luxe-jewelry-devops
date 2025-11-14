@@ -1,0 +1,265 @@
+# Global configuration
+global:
+  imageRegistry: "950555670656.dkr.ecr.us-east-2.amazonaws.com"
+  storageClass: "gp2"
+  
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: luxe-jewelry-app
+  app.kubernetes.io/part-of: luxe-jewelry-platform
+
+# Backend Service Configuration
+backend:
+  enabled: true
+  name: backend
+  image:
+    repository: jewleryapp/be
+    tag: "latest"
+    pullPolicy: Always
+  
+  replicaCount: 2
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: api.luxe-jewelry.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: luxe-jewelry-api-tls
+        hosts:
+          - api.luxe-jewelry.local
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+      
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    
+  env:
+    - name: ENVIRONMENT
+      value: "production"
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: CORS_ORIGINS
+      value: "https://luxe-jewelry.local"
+      
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+# Auth Service Configuration  
+auth:
+  enabled: true
+  name: auth-service
+  image:
+    repository: jewleryapp/auth
+    tag: "latest"
+    pullPolicy: Always
+    
+  replicaCount: 2
+  
+  service:
+    type: ClusterIP
+    port: 8001
+    targetPort: 8001
+    
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    hosts:
+      - host: auth.luxe-jewelry.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: luxe-jewelry-auth-tls
+        hosts:
+          - auth.luxe-jewelry.local
+  
+  resources:
+    limits:
+      cpu: 300m
+      memory: 256Mi
+    requests:
+      cpu: 150m
+      memory: 128Mi
+      
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    
+  env:
+    - name: JWT_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: auth-secrets
+          key: jwt-secret
+    - name: ENVIRONMENT
+      value: "production"
+      
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8001
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8001
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+# Frontend Configuration
+frontend:
+  enabled: true
+  name: jewelry-store
+  image:
+    repository: jewleryapp/fe
+    tag: "latest"
+    pullPolicy: Always
+    
+  replicaCount: 3
+  
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+    
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: luxe-jewelry.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: luxe-jewelry-frontend-tls
+        hosts:
+          - luxe-jewelry.local
+  
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+      
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    
+  env:
+    - name: REACT_APP_API_URL
+      value: "https://api.luxe-jewelry.local"
+    - name: REACT_APP_AUTH_URL
+      value: "https://auth.luxe-jewelry.local"
+      
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+# Database Configuration (if using external database)
+database:
+  enabled: false
+  type: postgresql
+  host: ""
+  port: 5432
+  name: luxe_jewelry
+  username: ""
+  password: ""
+
+# Redis Configuration (for caching/sessions)
+redis:
+  enabled: false
+  host: ""
+  port: 6379
+  password: ""
+
+# Security Configuration
+security:
+  networkPolicies:
+    enabled: true
+  podSecurityPolicy:
+    enabled: true
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+# Monitoring and Observability
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+  prometheusRule:
+    enabled: true
+
+# Backup and Persistence
+persistence:
+  enabled: false
+  storageClass: "gp2"
+  size: 10Gi
+
+# Node Selection and Tolerations
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pod Disruption Budgets
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

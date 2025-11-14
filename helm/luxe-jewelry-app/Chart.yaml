@@ -1,0 +1,21 @@
+apiVersion: v2
+name: luxe-jewelry-app
+description: A Helm chart for Luxe Jewelry Application - Complete microservices stack
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+home: https://github.com/ronhadad22/luxe-jewelry-devops
+sources:
+  - https://github.com/ronhadad22/luxe-jewelry-devops
+maintainers:
+  - name: Ron Hadad
+    email: ronhadad22@example.com
+keywords:
+  - jewelry
+  - ecommerce
+  - microservices
+  - react
+  - fastapi
+annotations:
+  category: E-commerce
+dependencies: []
