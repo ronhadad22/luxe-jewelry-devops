@@ -343,6 +343,14 @@ spec:
                 container('docker-aws') {
                     dir('backend') {
                         script {
+                            // Check if this is a PR build
+                            def isPR = env.BRANCH_NAME?.startsWith('PR-')
+                            if (isPR) {
+                                echo "🔍 PR Build: Building image for validation (will NOT push to ECR)"
+                            } else {
+                                echo "🚀 Production Build: Building image for deployment"
+                            }
+                            
                             sh '''
                                 export DOCKER_HOST=tcp://localhost:2375
                                 echo "Waiting for Docker daemon..."
@@ -404,11 +412,15 @@ spec:
                         }
                         changeset "backend/**"
                     }
-                    branch 'backend/PR-*'
-                    branch 'PR-*'
                     branch 'backend/release/*'
                     branch 'feature/backend/*'
                     branch 'patch/backend/*'
+                }
+                not {
+                    anyOf {
+                        branch 'PR-*'
+                        branch 'backend/PR-*'
+                    }
                 }
             }
             steps {
