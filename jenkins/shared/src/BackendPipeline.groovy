@@ -22,6 +22,31 @@ class BackendPipeline {
     }
 
     /**
+     * Determine whether linting/tests should run for the current branch
+     */
+    static boolean shouldRunQualityChecks(def env) {
+        if (isPullRequest(env) || isMainBranch(env)) {
+            return true
+        }
+
+        def branchName = env?.BRANCH_NAME ?: ''
+        if (!branchName) {
+            return true
+        }
+
+        def patterns = [
+            ~/^feature\/.*/,
+            ~/^backend\/.*/,
+            ~/^patch\/.*/,
+            ~/^hotfix\/.*/,
+            ~/^release\/.*/,
+            ~/^develop(ment)?$/
+        ]
+
+        return patterns.any { branchName ==~ it }
+    }
+
+    /**
      * Common when conditions for backend stages
      */
     static def getCommonWhenConditions() {
