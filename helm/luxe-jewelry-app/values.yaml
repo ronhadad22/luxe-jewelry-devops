@@ -14,7 +14,7 @@ backend:
   name: backend
   image:
     repository: jewleryapp/be
-    tag: "latest"
+    tag: "0.1.1"
     pullPolicy: Always
   
   replicaCount: 2
@@ -83,7 +83,7 @@ auth:
   name: auth-service
   image:
     repository: jewleryapp/auth
-    tag: "latest"
+    tag: "0.1.1"
     pullPolicy: Always
     
   replicaCount: 2
@@ -130,6 +130,12 @@ auth:
           key: jwt-secret
     - name: ENVIRONMENT
       value: "production"
+  
+  # Secrets configuration
+  secrets:
+    # JWT secret key (will be base64 encoded automatically)
+    # Change this in production!
+    jwtSecret: "your-secret-key-change-in-production-please-use-strong-random-value"
       
   livenessProbe:
     httpGet:
@@ -151,7 +157,7 @@ frontend:
   name: jewelry-store
   image:
     repository: jewleryapp/fe
-    tag: "latest"
+    tag: "0.1.1"
     pullPolicy: Always
     
   replicaCount: 3

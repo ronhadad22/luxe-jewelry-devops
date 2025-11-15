@@ -199,6 +199,21 @@ async def health_check():
     }
 
 
+@app.get("/ready")
+async def readiness_check():
+    """
+    Readiness check endpoint for Kubernetes readiness probe.
+    Returns 200 when the service is ready to accept traffic.
+    """
+    # Add any initialization checks here (database, cache, etc.)
+    # For now, if the app is running, it's ready
+    return {
+        "status": "ready",
+        "service": "backend",
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
 @app.get("/api/products", response_model=List[Product])
 async def get_products(category: Optional[str] = None):
     """Get all products or filter by category"""
