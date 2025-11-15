@@ -1,0 +1,54 @@
+{{- if .Values.auth.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "luxe-jewelry-app.fullname" . }}-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "luxe-jewelry-app.auth.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.auth.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "luxe-jewelry-app.auth.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "luxe-jewelry-app.auth.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "luxe-jewelry-app.serviceAccountName" . }}
+      containers:
+      - name: auth
+        image: {{ include "luxe-jewelry-app.image" (dict "repository" .Values.auth.image.repository "tag" .Values.auth.image.tag "Values" .Values) }}
+        imagePullPolicy: {{ .Values.auth.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.auth.service.targetPort }}
+          protocol: TCP
+        env:
+        {{- toYaml .Values.auth.env | nindent 8 }}
+        {{- include "luxe-jewelry-app.databaseEnv" . | nindent 8 }}
+        {{- include "luxe-jewelry-app.redisEnv" . | nindent 8 }}
+        {{- with .Values.auth.livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.auth.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.auth.resources | nindent 10 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

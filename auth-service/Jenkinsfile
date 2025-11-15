@@ -69,6 +69,20 @@ spec:
         }
         
         stage('Lint Code') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('python') {
                     dir('auth-service') {
@@ -89,6 +103,20 @@ spec:
         }
         
         stage('Security Scan') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('python') {
                     dir('auth-service') {
@@ -98,7 +126,7 @@ spec:
                             echo "Running security scan with bandit..."
                             bandit -r . -f json -o bandit-report.json || true
                             echo "Checking for known security vulnerabilities..."
-                            safety check --json --output safety-report.json || true
+                            safety check --output json > safety-report.json || true
                         '''
                     }
                 }
@@ -106,6 +134,20 @@ spec:
         }
         
         stage('Run Tests') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('python') {
                     dir('auth-service') {
@@ -129,6 +171,20 @@ spec:
         }
         
         stage('Dependency Check') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('python') {
                     dir('auth-service') {
@@ -201,6 +257,13 @@ spec:
     post {
         always {
             archiveArtifacts artifacts: 'auth-service/**/*-report.json, auth-service/**/*-results.xml, auth-service/**/htmlcov/**', allowEmptyArchive: true
+            script {
+                try {
+                    deleteDir()
+                } catch (Exception ex) {
+                    echo "⚠️ Workspace cleanup skipped: ${ex.message}"
+                }
+            }
         }
         success {
             echo "✅ Auth Service CI pipeline completed successfully!"

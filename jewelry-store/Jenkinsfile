@@ -70,6 +70,20 @@ spec:
         }
         
         stage('Lint Code') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -85,6 +99,20 @@ spec:
         }
         
         stage('Security Audit') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -99,6 +127,20 @@ spec:
         }
         
         stage('Run Tests') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -120,6 +162,20 @@ spec:
         }
         
         stage('Type Check') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -138,6 +194,20 @@ spec:
         }
         
         stage('Build Application') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -153,6 +223,20 @@ spec:
         }
         
         stage('Bundle Analysis') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -168,6 +252,20 @@ spec:
         }
         
         stage('Accessibility Tests') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('node') {
                     dir('jewelry-store') {
@@ -184,6 +282,20 @@ spec:
         }
         
         stage('Build Docker Image') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch == '' ||
+                        branch in ['main', 'master'] ||
+                        branch ==~ /^PR-.*$/ ||
+                        branch ==~ /^feature\/.*$/ ||
+                        branch ==~ /^backend\/.*$/ ||
+                        branch ==~ /^patch\/.*$/ ||
+                        branch ==~ /^hotfix\/.*$/ ||
+                        branch ==~ /^release\/.*$/ ||
+                        branch ==~ /^develop(ment)?$/
+                }
+            }
             steps {
                 container('docker') {
                     dir('jewelry-store') {
@@ -201,6 +313,12 @@ spec:
         }
         
         stage('Push to ECR') {
+            when {
+                expression {
+                    def branch = env.BRANCH_NAME ?: ''
+                    return branch in ['main', 'master']
+                }
+            }
             steps {
                 container('aws-cli') {
                     dir('jewelry-store') {
@@ -225,6 +343,13 @@ spec:
     post {
         always {
             archiveArtifacts artifacts: 'jewelry-store/build/**, jewelry-store/**/*-report.json, jewelry-store/**/junit.xml, jewelry-store/**/coverage/**', allowEmptyArchive: true
+            script {
+                try {
+                    deleteDir()
+                } catch (Exception ex) {
+                    echo "⚠️ Workspace cleanup skipped: ${ex.message}"
+                }
+            }
         }
         success {
             echo "✅ Jewelry Store Frontend CI pipeline completed successfully!"
