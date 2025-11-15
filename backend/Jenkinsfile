@@ -23,7 +23,16 @@ pipeline {
         
         stage('Lint & Unit Tests') {
             when {
-                expression { BackendPipeline.shouldRunQualityChecks(env) }
+                expression {
+                    BackendPipeline.isPullRequest(env) ||
+                    BackendPipeline.isMainBranch(env) ||
+                    (env.BRANCH_NAME ==~ /^feature\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^backend\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^patch\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^hotfix\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^release\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^develop(ment)?$/)
+                }
             }
             steps {
                 container('python') {
@@ -55,7 +64,16 @@ pipeline {
 
         stage('Static Analysis') {
             when {
-                expression { BackendPipeline.shouldRunQualityChecks(env) }
+                expression {
+                    BackendPipeline.isPullRequest(env) ||
+                    BackendPipeline.isMainBranch(env) ||
+                    (env.BRANCH_NAME ==~ /^feature\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^backend\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^patch\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^hotfix\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^release\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^develop(ment)?$/)
+                }
             }
             steps {
                 container('python') {
