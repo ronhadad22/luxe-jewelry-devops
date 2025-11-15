@@ -38,7 +38,7 @@ pipeline {
             }
             steps {
                 container('python') {
-                    dir('backend') {
+                    dir('auth-service') {
                         script {
                             BackendPipeline.setupPythonEnvironment(this)
                             BackendPipeline.runLinting(this)
@@ -49,7 +49,7 @@ pipeline {
         }
             post {
                 always {
-                    dir('backend') {
+                    dir('auth-service') {
                         junit testResults: 'test-results.xml', allowEmptyResults: false
                         publishHTML([
                             allowMissing: false,
@@ -79,7 +79,7 @@ pipeline {
             }
             steps {
                 container('python') {
-                    dir('backend') {
+                    dir('auth-service') {
                         script {
                             BackendPipeline.runSecurityScans(this)
                         }
@@ -94,7 +94,7 @@ pipeline {
             }
             steps {
                 container('docker-aws') {
-                    dir('backend') {
+                    dir('auth-service') {
                         script {
                             BackendPipeline.buildValidationImage(
                                 this,
@@ -133,7 +133,7 @@ pipeline {
             }
             steps {
                 container('docker-aws') {
-                    dir('backend') {
+                    dir('auth-service') {
                         script {
                             def result = BackendPipeline.buildAndTagReleaseImage(
                                 this,
@@ -176,7 +176,7 @@ pipeline {
     
     post {
         always {
-            archiveArtifacts artifacts: 'auth-service/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'auth-service/**/*-report.json, auth-service/**/*-results.xml, auth-service/**/htmlcov/**', allowEmptyArchive: true
             script {
                 try {
                     deleteDir()
