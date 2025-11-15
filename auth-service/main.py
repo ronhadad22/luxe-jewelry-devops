@@ -337,6 +337,19 @@ async def health_check():
     }
 
 
+@app.get("/ready")
+async def readiness_check():
+    """
+    Readiness check endpoint for Kubernetes readiness probe.
+    Returns 200 when the service is ready to accept traffic.
+    """
+    return {
+        "status": "ready",
+        "service": "auth-service",
+        "timestamp": datetime.utcnow(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
