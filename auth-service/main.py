@@ -11,6 +11,7 @@ import os
 
 app = FastAPI(title="Luxe Jewelry Store - Auth Service", version="1.0.0")
 
+
 # Enable CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
