@@ -23,7 +23,7 @@ pipeline {
         
         stage('Lint & Unit Tests') {
             when {
-                expression { BackendPipeline.isPullRequest(env) || BackendPipeline.isMainBranch(env) }
+                expression { BackendPipeline.shouldRunQualityChecks(env) }
             }
             steps {
                 container('python') {
@@ -55,7 +55,7 @@ pipeline {
 
         stage('Static Analysis') {
             when {
-                expression { BackendPipeline.isPullRequest(env) || BackendPipeline.isMainBranch(env) }
+                expression { BackendPipeline.shouldRunQualityChecks(env) }
             }
             steps {
                 container('python') {
