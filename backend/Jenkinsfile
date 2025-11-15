@@ -157,7 +157,13 @@ pipeline {
     post {
         always {
             archiveArtifacts artifacts: 'backend/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', allowEmptyArchive: true
-            deleteDir()
+            script {
+                try {
+                    deleteDir()
+                } catch (Exception ex) {
+                    echo "⚠️ Workspace cleanup skipped: ${ex.message}"
+                }
+            }
         }
         success {
             echo "✅ Backend Service CI pipeline completed successfully!"
