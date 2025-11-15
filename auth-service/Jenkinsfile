@@ -1,39 +1,9 @@
+@Library('shared-pipeline-library@main') _
+
 pipeline {
     agent {
         kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: python
-    image: python:3.11-slim
-    command:
-    - cat
-    tty: true
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
-  - name: docker
-    image: docker:24.0.6-dind
-    securityContext:
-      privileged: true
-    env:
-    - name: DOCKER_TLS_CERTDIR
-      value: ""
-  - name: aws-cli
-    image: amazon/aws-cli:latest
-    command:
-    - cat
-    tty: true
-    volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
-  volumes:
-  - name: docker-sock
-    hostPath:
-      path: /var/run/docker.sock
-"""
+            yaml backendPipeline.getPodTemplate()
         }
     }
     
@@ -53,210 +23,160 @@ spec:
             }
         }
         
-        stage('Setup Python Environment') {
+        stage('Lint & Unit Tests') {
+            when {
+                expression {
+                    BackendPipeline.isPullRequest(env) ||
+                    BackendPipeline.isMainBranch(env) ||
+                    (env.BRANCH_NAME ==~ /^feature\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^backend\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^patch\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^hotfix\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^release\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^develop(ment)?$/)
+                }
+            }
             steps {
                 container('python') {
-                    dir('auth-service') {
-                        sh '''
-                            python -m venv venv
-                            . venv/bin/activate
-                            pip install --upgrade pip
-                            pip install -r requirements.txt
-                        '''
+                    dir('backend') {
+                        script {
+                            BackendPipeline.setupPythonEnvironment(this)
+                            BackendPipeline.runLinting(this)
+                            BackendPipeline.runTests(this)
                     }
                 }
             }
         }
-        
-        stage('Lint Code') {
-            when {
-                expression {
-                    def branch = env.BRANCH_NAME ?: ''
-                    return branch == '' ||
-                        branch in ['main', 'master'] ||
-                        branch ==~ /^PR-.*$/ ||
-                        branch ==~ /^feature\/.*$/ ||
-                        branch ==~ /^backend\/.*$/ ||
-                        branch ==~ /^patch\/.*$/ ||
-                        branch ==~ /^hotfix\/.*$/ ||
-                        branch ==~ /^release\/.*$/ ||
-                        branch ==~ /^develop(ment)?$/
-                }
-            }
-            steps {
-                container('python') {
-                    dir('auth-service') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install flake8 black isort
-                            echo "Running code formatting checks..."
-                            black --check --diff .
-                            echo "Running import sorting checks..."
-                            isort --check-only --diff .
-                            echo "Running linting..."
-                            flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-                            flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Security Scan') {
-            when {
-                expression {
-                    def branch = env.BRANCH_NAME ?: ''
-                    return branch == '' ||
-                        branch in ['main', 'master'] ||
-                        branch ==~ /^PR-.*$/ ||
-                        branch ==~ /^feature\/.*$/ ||
-                        branch ==~ /^backend\/.*$/ ||
-                        branch ==~ /^patch\/.*$/ ||
-                        branch ==~ /^hotfix\/.*$/ ||
-                        branch ==~ /^release\/.*$/ ||
-                        branch ==~ /^develop(ment)?$/
-                }
-            }
-            steps {
-                container('python') {
-                    dir('auth-service') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install bandit safety
-                            echo "Running security scan with bandit..."
-                            bandit -r . -f json -o bandit-report.json || true
-                            echo "Checking for known security vulnerabilities..."
-                            safety check --output json > safety-report.json || true
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Run Tests') {
-            when {
-                expression {
-                    def branch = env.BRANCH_NAME ?: ''
-                    return branch == '' ||
-                        branch in ['main', 'master'] ||
-                        branch ==~ /^PR-.*$/ ||
-                        branch ==~ /^feature\/.*$/ ||
-                        branch ==~ /^backend\/.*$/ ||
-                        branch ==~ /^patch\/.*$/ ||
-                        branch ==~ /^hotfix\/.*$/ ||
-                        branch ==~ /^release\/.*$/ ||
-                        branch ==~ /^develop(ment)?$/
-                }
-            }
-            steps {
-                container('python') {
-                    dir('auth-service') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install pytest pytest-cov pytest-asyncio
-                            echo "Running tests..."
-                            pytest --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml || true
-                        '''
-                    }
-                }
-            }
             post {
                 always {
-                    dir('auth-service') {
-                        publishTestResults testResultsPattern: 'test-results.xml'
-                        publishCoverage adapters: [coberturaAdapter('coverage.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+                    dir('backend') {
+                        junit testResults: 'test-results.xml', allowEmptyResults: false
+                        publishHTML([
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: 'htmlcov',
+                            reportFiles: 'index.html',
+                            reportName: 'Coverage Report'
+                        ])
                     }
                 }
             }
         }
         
-        stage('Dependency Check') {
+        stage('Static Analysis') {
             when {
                 expression {
-                    def branch = env.BRANCH_NAME ?: ''
-                    return branch == '' ||
-                        branch in ['main', 'master'] ||
-                        branch ==~ /^PR-.*$/ ||
-                        branch ==~ /^feature\/.*$/ ||
-                        branch ==~ /^backend\/.*$/ ||
-                        branch ==~ /^patch\/.*$/ ||
-                        branch ==~ /^hotfix\/.*$/ ||
-                        branch ==~ /^release\/.*$/ ||
-                        branch ==~ /^develop(ment)?$/
+                    BackendPipeline.isPullRequest(env) ||
+                    BackendPipeline.isMainBranch(env) ||
+                    (env.BRANCH_NAME ==~ /^feature\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^backend\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^patch\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^hotfix\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^release\/.*/) ||
+                    (env.BRANCH_NAME ==~ /^develop(ment)?$/)
                 }
             }
             steps {
                 container('python') {
-                    dir('auth-service') {
-                        sh '''
-                            . venv/bin/activate
-                            pip install pip-audit
-                            echo "Auditing dependencies for vulnerabilities..."
-                            pip-audit --format=json --output=pip-audit-report.json || true
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Build Validation') {
-            steps {
-                container('python') {
-                    dir('auth-service') {
-                        sh '''
-                            . venv/bin/activate
-                            echo "Validating application can start..."
-                            timeout 10s python main.py &
-                            sleep 5
-                            echo "Application validation completed"
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                container('docker') {
-                    dir('auth-service') {
-                        sh '''
-                            echo "Waiting for Docker daemon to be ready..."
-                            sleep 10
-                            echo "Building Docker image..."
-                            docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
-                            docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                            echo "Docker image built successfully"
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Push to ECR') {
-            steps {
-                container('aws-cli') {
-                    dir('auth-service') {
-                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-                            sh '''
-                                echo "Logging into ECR..."
-                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                                
-                                echo "Pushing Docker image to ECR..."
-                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
-                                docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-                                
-                                echo "Successfully pushed to ECR: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-                            '''
+                    dir('backend') {
+                        script {
+                            BackendPipeline.runSecurityScans(this)
                         }
                     }
                 }
             }
         }
+        
+        stage('PR Validation Image Build') {
+            when {
+                expression { BackendPipeline.isPullRequest(env) }
+            }
+            steps {
+                container('docker-aws') {
+                    dir('backend') {
+                        script {
+                            BackendPipeline.buildValidationImage(
+                                this,
+                                env,
+                                env.ECR_REGISTRY,
+                                env.ECR_REPOSITORY
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Determine Release Version') {
+            when {
+                expression { BackendPipeline.isMainBranch(env) }
+            }
+            steps {
+                script {
+                    def releaseVersion = BackendPipeline.determineReleaseVersion(this, env)
+                    env.RELEASE_VERSION = releaseVersion
+                    env.RELEASE_TAGS = [
+                        "${releaseVersion}-dev",
+                        "${releaseVersion}-rc",
+                        releaseVersion
+                    ].join(',')
+                    echo "Release version determined: ${releaseVersion}"
+                    echo "Release tags: ${env.RELEASE_TAGS}"
+                }
+            }
+        }
+        
+        stage('Build Release Image') {
+            when {
+                expression { BackendPipeline.isMainBranch(env) }
+            }
+            steps {
+                container('docker-aws') {
+                    dir('backend') {
+                        script {
+                            def result = BackendPipeline.buildAndTagReleaseImage(
+                                this,
+                                env,
+                                env.RELEASE_VERSION,
+                                env.ECR_REGISTRY,
+                                env.ECR_REPOSITORY
+                            )
+                            env.RELEASE_TEMP_TAG = result.tempTag
+                            env.RELEASE_TAGS = result.releaseTags.join(',')
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push Release Images') {
+            when {
+                expression { BackendPipeline.isMainBranch(env) }
+            }
+            steps {
+                container('docker-aws') {
+                    script {
+                        def tags = env.RELEASE_TAGS?.split(',')?.collect { it.trim() }?.findAll { it }
+                        BackendPipeline.pushTaggedImages(
+                            this,
+                            env.ECR_REGISTRY,
+                            env.ECR_REPOSITORY,
+                            tags,
+                            env.AWS_DEFAULT_REGION
+                        )
+                    }
+                }
+            }
+        }
+
+        // TODO: GitOps manifest updates will be handled in a dedicated CD pipeline.
+        // CI intentionally stops after publishing release images.
     }
     
     post {
         always {
-            archiveArtifacts artifacts: 'auth-service/**/*-report.json, auth-service/**/*-results.xml, auth-service/**/htmlcov/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'auth-service/**/*-report.json, backend/**/*-results.xml, backend/**/htmlcov/**', allowEmptyArchive: true
             script {
                 try {
                     deleteDir()
