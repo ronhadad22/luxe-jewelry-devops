@@ -91,7 +91,7 @@ auth:
   service:
     type: ClusterIP
     port: 8001
-    targetPort: 8001
+    targetPort: 8000
     
   ingress:
     enabled: true
@@ -140,14 +140,14 @@ auth:
   livenessProbe:
     httpGet:
       path: /health
-      port: 8001
+      port: 8000
     initialDelaySeconds: 30
     periodSeconds: 10
     
   readinessProbe:
     httpGet:
       path: /ready
-      port: 8001
+      port: 8000
     initialDelaySeconds: 5
     periodSeconds: 5
 
