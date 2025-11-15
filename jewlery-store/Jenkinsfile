@@ -210,3 +210,9 @@ pipeline {
         }
         success {
             echo "✅ Jewelry Store Frontend CI pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Jewelry Store Frontend CI pipeline failed!"
+        }
+    }
+}
