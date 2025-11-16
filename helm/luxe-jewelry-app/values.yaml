@@ -142,12 +142,6 @@ auth:
           key: jwt-secret
     - name: ENVIRONMENT
       value: "production"
-  
-  # Secrets configuration
-  secrets:
-    # JWT secret key (will be base64 encoded automatically)
-    # Change this in production!
-    jwtSecret: "your-secret-key-change-in-production-please-use-strong-random-value"
       
   livenessProbe:
     httpGet:
