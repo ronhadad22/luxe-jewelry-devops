@@ -1,0 +1,151 @@
+name: Promote Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to promote'
+        required: true
+        type: choice
+        options:
+          - backend
+          - auth-service
+          - both
+      source_tag:
+        description: 'Source image tag (e.g. commit SHA or "dev")'
+        required: true
+        type: string
+      target_environment:
+        description: 'Target environment to promote to'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: eu-west-1
+  AWS_ACCOUNT_ID: "050752632489"
+  ECR_BACKEND_REPO: luxe-jewelry-dev-backend
+  ECR_AUTH_REPO: luxe-jewelry-dev-auth-service
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.service }} to ${{ inputs.target_environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Promote backend image
+        if: inputs.service == 'backend' || inputs.service == 'both'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          echo "Pulling $ECR_BACKEND_REPO:${{ inputs.source_tag }}"
+          docker pull $ECR_REGISTRY/$ECR_BACKEND_REPO:${{ inputs.source_tag }}
+
+          echo "Tagging as ${{ inputs.target_environment }}"
+          docker tag \
+            $ECR_REGISTRY/$ECR_BACKEND_REPO:${{ inputs.source_tag }} \
+            $ECR_REGISTRY/$ECR_BACKEND_REPO:${{ inputs.target_environment }}
+
+          echo "Pushing ${{ inputs.target_environment }} tag"
+          docker push $ECR_REGISTRY/$ECR_BACKEND_REPO:${{ inputs.target_environment }}
+
+      - name: Promote auth-service image
+        if: inputs.service == 'auth-service' || inputs.service == 'both'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          echo "Pulling $ECR_AUTH_REPO:${{ inputs.source_tag }}"
+          docker pull $ECR_REGISTRY/$ECR_AUTH_REPO:${{ inputs.source_tag }}
+
+          echo "Tagging as ${{ inputs.target_environment }}"
+          docker tag \
+            $ECR_REGISTRY/$ECR_AUTH_REPO:${{ inputs.source_tag }} \
+            $ECR_REGISTRY/$ECR_AUTH_REPO:${{ inputs.target_environment }}
+
+          echo "Pushing ${{ inputs.target_environment }} tag"
+          docker push $ECR_REGISTRY/$ECR_AUTH_REPO:${{ inputs.target_environment }}
+
+      - name: Summary
+        run: |
+          echo "### Image Promotion Complete :arrow_up:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service** | \`${{ inputs.service }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Source Tag** | \`${{ inputs.source_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target Env** | \`${{ inputs.target_environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Promoted By** | \`${{ github.actor }}\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Deploy promoted image to target environment ECS
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to ${{ inputs.target_environment }}
+    needs: promote
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set ECS names for target environment
+        id: ecs
+        run: |
+          ENV="${{ inputs.target_environment }}"
+          echo "cluster=luxe-jewelry-${ENV}-cluster" >> $GITHUB_OUTPUT
+          echo "backend_service=luxe-jewelry-${ENV}-backend" >> $GITHUB_OUTPUT
+          echo "auth_service=luxe-jewelry-${ENV}-auth-service" >> $GITHUB_OUTPUT
+
+      - name: Deploy backend to ECS
+        if: inputs.service == 'backend' || inputs.service == 'both'
+        run: |
+          aws ecs update-service \
+            --cluster ${{ steps.ecs.outputs.cluster }} \
+            --service ${{ steps.ecs.outputs.backend_service }} \
+            --force-new-deployment
+
+      - name: Deploy auth-service to ECS
+        if: inputs.service == 'auth-service' || inputs.service == 'both'
+        run: |
+          aws ecs update-service \
+            --cluster ${{ steps.ecs.outputs.cluster }} \
+            --service ${{ steps.ecs.outputs.auth_service }} \
+            --force-new-deployment
+
+      - name: Wait for service stability
+        run: |
+          SERVICES=""
+          if [[ "${{ inputs.service }}" == "backend" || "${{ inputs.service }}" == "both" ]]; then
+            SERVICES="${{ steps.ecs.outputs.backend_service }}"
+          fi
+          if [[ "${{ inputs.service }}" == "auth-service" || "${{ inputs.service }}" == "both" ]]; then
+            SERVICES="$SERVICES ${{ steps.ecs.outputs.auth_service }}"
+          fi
+
+          aws ecs wait services-stable \
+            --cluster ${{ steps.ecs.outputs.cluster }} \
+            --services $SERVICES
+
+      - name: Summary
+        run: |
+          echo "### Deployment to ${{ inputs.target_environment }} Complete :white_check_mark:" >> $GITHUB_STEP_SUMMARY
+          echo "Cluster: \`${{ steps.ecs.outputs.cluster }}\`" >> $GITHUB_STEP_SUMMARY

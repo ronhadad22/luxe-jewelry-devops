@@ -8,6 +8,18 @@ commonLabels:
   app.kubernetes.io/name: luxe-jewelry-app
   app.kubernetes.io/part-of: luxe-jewelry-platform
 
+# External Secrets Operator Configuration
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  # Use existing ClusterSecretStore instead of creating a new SecretStore
+  secretStoreName: "aws-secrets-manager-cluster"
+  secretStoreKind: "ClusterSecretStore"
+  aws:
+    region: us-east-1
+  auth:
+    secretArn: "arn:aws:secretsmanager:us-east-1:950555670656:secret:jewlery-app/auth-givYmd"
+
 # Backend Service Configuration
 backend:
   enabled: true
@@ -91,7 +103,7 @@ auth:
   service:
     type: ClusterIP
     port: 8001
-    targetPort: 8001
+    targetPort: 8000
     
   ingress:
     enabled: true
@@ -130,24 +142,18 @@ auth:
           key: jwt-secret
     - name: ENVIRONMENT
       value: "production"
-  
-  # Secrets configuration
-  secrets:
-    # JWT secret key (will be base64 encoded automatically)
-    # Change this in production!
-    jwtSecret: "your-secret-key-change-in-production-please-use-strong-random-value"
       
   livenessProbe:
     httpGet:
       path: /health
-      port: 8001
+      port: 8000
     initialDelaySeconds: 30
     periodSeconds: 10
     
   readinessProbe:
     httpGet:
       path: /ready
-      port: 8001
+      port: 8000
     initialDelaySeconds: 5
     periodSeconds: 5
 
@@ -242,7 +248,10 @@ security:
     enabled: true
   serviceAccount:
     create: true
-    annotations: {}
+    annotations:
+      # IAM role for External Secrets Operator to access AWS Secrets Manager
+      # Replace with your actual IAM role ARN
+      eks.amazonaws.com/role-arn: "arn:aws:iam::950555670656:role/luxe-jewelry-external-secrets-role"
     name: ""
 
 # Monitoring and Observability
