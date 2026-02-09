@@ -61,16 +61,15 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # ALB origin for API calls
+  # ALB origin via VPC origin (internal ALB)
   origin {
     domain_name = aws_lb.main.dns_name
     origin_id   = "alb-api"
 
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
+    vpc_origin_config {
+      vpc_origin_id            = aws_cloudfront_vpc_origin.alb.id
+      origin_keepalive_timeout = 5
+      origin_read_timeout      = 30
     }
   }
 
@@ -160,6 +159,29 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   tags = {
     Name = "${var.project_name}-${var.environment}-frontend-cdn"
+  }
+}
+
+################################################################################
+# CloudFront VPC Origin for Internal ALB
+################################################################################
+
+resource "aws_cloudfront_vpc_origin" "alb" {
+  vpc_origin_endpoint_config {
+    name                   = "${var.project_name}-${var.environment}-alb-vpc-origin"
+    arn                    = aws_lb.main.arn
+    http_port              = 80
+    https_port             = 443
+    origin_protocol_policy = "http-only"
+
+    origin_ssl_protocols {
+      items    = ["TLSv1.2"]
+      quantity = 1
+    }
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-alb-vpc-origin"
   }
 }
 
