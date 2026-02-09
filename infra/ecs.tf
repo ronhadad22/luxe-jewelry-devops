@@ -261,3 +261,4 @@ resource "aws_ecs_service" "auth" {
     Name = "${var.project_name}-${var.environment}-auth-service"
   }
 }
+
