@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 
 // API Configuration
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000/api';
-const AUTH_BASE_URL = process.env.REACT_APP_AUTH_BASE_URL || 'http://localhost:8001';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL ?? 'http://localhost:8000/api';
+const AUTH_BASE_URL = process.env.REACT_APP_AUTH_BASE_URL ?? 'http://localhost:8001';
 
 // Log the API endpoint for debugging
 console.log('🔗 Backend API Endpoint:', API_BASE_URL);
