@@ -6,12 +6,14 @@ on:
     paths:
       - 'backend/**'
       - 'auth-service/**'
+      - 'jewlery-store/**'
       - '.github/workflows/ci-build-push.yml'
   pull_request:
     branches: [main]
     paths:
       - 'backend/**'
       - 'auth-service/**'
+      - 'jewlery-store/**'
 
 env:
   AWS_REGION: eu-west-1
@@ -20,6 +22,8 @@ env:
   ECS_CLUSTER: luxe-jewelry-dev-cluster
   ECS_BACKEND_SERVICE: luxe-jewelry-dev-backend
   ECS_AUTH_SERVICE: luxe-jewelry-dev-auth-service
+  S3_FRONTEND_BUCKET: luxe-jewelry-dev-frontend
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
 permissions:
   id-token: write
@@ -35,6 +39,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       auth: ${{ steps.filter.outputs.auth }}
+      frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -45,6 +50,8 @@ jobs:
               - 'backend/**'
             auth:
               - 'auth-service/**'
+            frontend:
+              - 'jewlery-store/**'
 
   # ---------------------------------------------------------------------------
   # Build & Push Backend
@@ -153,15 +160,72 @@ jobs:
           echo "| \`dev\` | \`$ECR_REGISTRY/$ECR_AUTH_REPO:dev\` |" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
+  # Build & Deploy Frontend to S3 + CloudFront
+  # ---------------------------------------------------------------------------
+  build-frontend:
+    name: Build & Deploy Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: jewlery-store/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: jewlery-store
+
+      - name: Build
+        run: npm run build
+        working-directory: jewlery-store
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync jewlery-store/build/ s3://$S3_FRONTEND_BUCKET \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html" \
+            --exclude "service-worker.js"
+
+          aws s3 cp jewlery-store/build/index.html s3://$S3_FRONTEND_BUCKET/index.html \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
+            --paths "/*"
+
+      - name: Summary
+        run: |
+          echo "### Frontend Deployed to S3 + CloudFront :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **S3 Bucket** | \`$S3_FRONTEND_BUCKET\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **CloudFront** | \`$CLOUDFRONT_DISTRIBUTION_ID\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
   # Deploy to ECS (dev) after build
   # ---------------------------------------------------------------------------
   deploy-dev:
     name: Deploy to ECS (dev)
-    needs: [build-backend, build-auth]
+    needs: [build-backend, build-auth, build-frontend]
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
-      (needs.build-backend.result == 'success' || needs.build-auth.result == 'success')
+      (needs.build-backend.result == 'success' || needs.build-auth.result == 'success' || needs.build-frontend.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials

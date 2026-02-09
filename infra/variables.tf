@@ -96,6 +96,19 @@ variable "auth_desired_count" {
   default     = 2
 }
 
+# GitHub
+variable "github_org" {
+  description = "GitHub organization or username"
+  type        = string
+  default     = "ronhadad22"
+}
+
+variable "github_repo" {
+  description = "GitHub repository name"
+  type        = string
+  default     = "luxe-jewelry-devops"
+}
+
 # Secrets
 variable "jwt_secret_key" {
   description = "JWT secret key for token signing"

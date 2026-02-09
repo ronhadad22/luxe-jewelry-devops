@@ -47,3 +47,23 @@ output "swagger_auth_url" {
   description = "Swagger UI URL for auth-service API"
   value       = "http://${aws_lb.main.dns_name}/auth/docs"
 }
+
+output "frontend_bucket_name" {
+  description = "S3 bucket name for frontend static files"
+  value       = aws_s3_bucket.frontend.id
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID"
+  value       = aws_cloudfront_distribution.frontend.id
+}
+
+output "cloudfront_url" {
+  description = "CloudFront URL for the frontend"
+  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+}
+
+output "github_actions_role_arn" {
+  description = "IAM Role ARN for GitHub Actions - set this as AWS_ROLE_ARN secret in your repo"
+  value       = aws_iam_role.github_actions.arn
+}
