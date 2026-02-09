@@ -1,0 +1,206 @@
+name: CI - Build & Push to ECR
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - 'auth-service/**'
+      - '.github/workflows/ci-build-push.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'auth-service/**'
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_BACKEND_REPO: luxe-jewelry-dev-backend
+  ECR_AUTH_REPO: luxe-jewelry-dev-auth-service
+  ECS_CLUSTER: luxe-jewelry-dev-cluster
+  ECS_BACKEND_SERVICE: luxe-jewelry-dev-backend
+  ECS_AUTH_SERVICE: luxe-jewelry-dev-auth-service
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Detect which services changed
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      auth: ${{ steps.filter.outputs.auth }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            auth:
+              - 'auth-service/**'
+
+  # ---------------------------------------------------------------------------
+  # Build & Push Backend
+  # ---------------------------------------------------------------------------
+  build-backend:
+    name: Build Backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "image_tag=${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG \
+                       -t $ECR_REGISTRY/$ECR_BACKEND_REPO:latest \
+                       -t $ECR_REGISTRY/$ECR_BACKEND_REPO:dev \
+                       ./backend
+
+          docker push $ECR_REGISTRY/$ECR_BACKEND_REPO --all-tags
+
+      - name: Summary
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          echo "### Backend Image Pushed :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | Image |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`$IMAGE_TAG\` | \`$ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`latest\` | \`$ECR_REGISTRY/$ECR_BACKEND_REPO:latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`dev\` | \`$ECR_REGISTRY/$ECR_BACKEND_REPO:dev\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Build & Push Auth Service
+  # ---------------------------------------------------------------------------
+  build-auth:
+    name: Build Auth Service
+    needs: changes
+    if: needs.changes.outputs.auth == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+          echo "image_tag=${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push auth-service image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_AUTH_REPO:$IMAGE_TAG \
+                       -t $ECR_REGISTRY/$ECR_AUTH_REPO:latest \
+                       -t $ECR_REGISTRY/$ECR_AUTH_REPO:dev \
+                       ./auth-service
+
+          docker push $ECR_REGISTRY/$ECR_AUTH_REPO --all-tags
+
+      - name: Summary
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          echo "### Auth Service Image Pushed :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | Image |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`$IMAGE_TAG\` | \`$ECR_REGISTRY/$ECR_AUTH_REPO:$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`latest\` | \`$ECR_REGISTRY/$ECR_AUTH_REPO:latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`dev\` | \`$ECR_REGISTRY/$ECR_AUTH_REPO:dev\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Deploy to ECS (dev) after build
+  # ---------------------------------------------------------------------------
+  deploy-dev:
+    name: Deploy to ECS (dev)
+    needs: [build-backend, build-auth]
+    if: |
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (needs.build-backend.result == 'success' || needs.build-auth.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy backend to ECS
+        if: needs.build-backend.result == 'success'
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_BACKEND_SERVICE \
+            --force-new-deployment
+
+      - name: Deploy auth-service to ECS
+        if: needs.build-auth.result == 'success'
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_AUTH_SERVICE \
+            --force-new-deployment
+
+      - name: Wait for backend service stability
+        if: needs.build-backend.result == 'success'
+        run: |
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_BACKEND_SERVICE
+
+      - name: Wait for auth-service stability
+        if: needs.build-auth.result == 'success'
+        run: |
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_AUTH_SERVICE
+
+      - name: Summary
+        run: |
+          echo "### Deployment Complete :white_check_mark:" >> $GITHUB_STEP_SUMMARY
+          echo "Services updated in cluster \`$ECS_CLUSTER\`" >> $GITHUB_STEP_SUMMARY

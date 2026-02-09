@@ -140,6 +140,8 @@ helm upgrade --install luxe-jewelry-app ./helm/luxe-jewelry-app \
 ```bash
 # Check SecretStore
 kubectl get secretstore -n luxe-jewelry
+# OR
+kubectl get clustersecretstore -n luxe-jewelry
 
 # Check ExternalSecret
 kubectl get externalsecret -n luxe-jewelry

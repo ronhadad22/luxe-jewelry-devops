@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - JWT_SECRET_KEY=your-secret-key-change-in-production
+    depends_on:
+      - auth-service
+    networks:
+      - luxe-network
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - JWT_SECRET_KEY=your-secret-key-change-in-production
+    networks:
+      - luxe-network
+
+networks:
+  luxe-network:
+    driver: bridge

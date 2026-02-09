@@ -8,9 +8,53 @@ import jwt
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
-app = FastAPI(title="Luxe Jewelry Store - Auth Service", version="1.0.0")
+tags_metadata = [
+    {
+        "name": "Authentication",
+        "description": "User registration, login, logout, and token management.",
+    },
+    {
+        "name": "User Profile",
+        "description": "View and update user profile information.",
+    },
+    {
+        "name": "Admin",
+        "description": "Administrative endpoints for user management.",
+    },
+    {
+        "name": "Health",
+        "description": "Health check and readiness endpoints for monitoring.",
+    },
+]
+
+app = FastAPI(
+    title="Luxe Jewelry Store - Auth Service",
+    description="""
+## Authentication Service for Luxe Jewelry Store
+
+Handles all user authentication and authorization:
+
+* **Registration** - Create new user accounts with secure password hashing
+* **Login/Logout** - JWT-based authentication with configurable expiration
+* **Profile Management** - Update user information and change passwords
+
+### Security
+- Passwords are hashed using bcrypt
+- JWT tokens expire after 30 minutes
+- Bearer token authentication required for protected endpoints
+    """,
+    version="1.0.0",
+    contact={
+        "name": "Luxe Jewelry Support",
+        "email": "support@luxejewelry.com",
+    },
+    license_info={
+        "name": "MIT",
+    },
+    openapi_tags=tags_metadata,
+)
 
 
 # Enable CORS for React frontend
@@ -32,44 +76,111 @@ security = HTTPBearer()
 
 # Data Models
 class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-    first_name: str
-    last_name: str
-    phone: Optional[str] = None
+    email: EmailStr = Field(..., example="john.doe@example.com", description="User's email address")
+    password: str = Field(..., example="SecurePass123!", min_length=8, description="Password (min 8 characters)")
+    first_name: str = Field(..., example="John", description="User's first name")
+    last_name: str = Field(..., example="Doe", description="User's last name")
+    phone: Optional[str] = Field(None, example="+1-555-123-4567", description="Phone number (optional)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "john.doe@example.com",
+                "password": "SecurePass123!",
+                "first_name": "John",
+                "last_name": "Doe",
+                "phone": "+1-555-123-4567"
+            }
+        }
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
+    email: EmailStr = Field(..., example="john.doe@example.com", description="Registered email address")
+    password: str = Field(..., example="SecurePass123!", description="Account password")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "john.doe@example.com",
+                "password": "SecurePass123!"
+            }
+        }
 
 
 class UserResponse(BaseModel):
-    id: str
-    email: str
-    first_name: str
-    last_name: str
-    phone: Optional[str]
-    created_at: datetime
-    is_active: bool
+    id: str = Field(..., example="550e8400-e29b-41d4-a716-446655440000", description="Unique user identifier")
+    email: str = Field(..., example="john.doe@example.com", description="User's email address")
+    first_name: str = Field(..., example="John", description="User's first name")
+    last_name: str = Field(..., example="Doe", description="User's last name")
+    phone: Optional[str] = Field(None, example="+1-555-123-4567", description="Phone number")
+    created_at: datetime = Field(..., description="Account creation timestamp")
+    is_active: bool = Field(..., example=True, description="Account active status")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "email": "john.doe@example.com",
+                "first_name": "John",
+                "last_name": "Doe",
+                "phone": "+1-555-123-4567",
+                "created_at": "2024-01-15T10:30:00",
+                "is_active": True
+            }
+        }
 
 
 class UserUpdate(BaseModel):
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone: Optional[str] = None
+    first_name: Optional[str] = Field(None, example="John", description="New first name")
+    last_name: Optional[str] = Field(None, example="Doe", description="New last name")
+    phone: Optional[str] = Field(None, example="+1-555-123-4567", description="New phone number")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "first_name": "John",
+                "last_name": "Smith",
+                "phone": "+1-555-987-6543"
+            }
+        }
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    expires_in: int
-    user: UserResponse
+    access_token: str = Field(..., example="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...", description="JWT access token")
+    token_type: str = Field(..., example="bearer", description="Token type")
+    expires_in: int = Field(..., example=1800, description="Token expiration time in seconds")
+    user: UserResponse = Field(..., description="User profile information")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMC1lMjliLTQxZDQtYTcxNi00NDY2NTU0NDAwMDAiLCJleHAiOjE3MDUzMTg2MDB9.abc123",
+                "token_type": "bearer",
+                "expires_in": 1800,
+                "user": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "email": "john.doe@example.com",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "phone": "+1-555-123-4567",
+                    "created_at": "2024-01-15T10:30:00",
+                    "is_active": True
+                }
+            }
+        }
 
 
 class PasswordChange(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(..., example="OldPass123!", description="Current password")
+    new_password: str = Field(..., example="NewSecurePass456!", min_length=8, description="New password (min 8 characters)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "current_password": "OldPass123!",
+                "new_password": "NewSecurePass456!"
+            }
+        }
 
 
 # In-memory user storage (in production, use a database)
@@ -135,14 +246,49 @@ def get_current_user(user_id: str = Depends(verify_token)):
 # API Endpoints
 
 
-@app.get("/")
+@app.get(
+    "/",
+    tags=["Health"],
+    summary="API Root",
+    response_description="Welcome message",
+)
 async def root():
+    """
+    Root endpoint returning API welcome message.
+    """
     return {"message": "Welcome to Luxe Jewelry Store Auth Service"}
 
 
-@app.post("/auth/register", response_model=TokenResponse)
+@app.post(
+    "/auth/register",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Register New User",
+    response_description="Registration successful with access token",
+    responses={
+        200: {"description": "User registered successfully"},
+        400: {
+            "description": "Email already registered",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Email already registered"}
+                }
+            }
+        }
+    }
+)
 async def register_user(user_data: UserCreate):
-    """Register a new user"""
+    """
+    Register a new user account.
+    
+    - **email**: Valid email address (must be unique)
+    - **password**: Minimum 8 characters
+    - **first_name**: User's first name
+    - **last_name**: User's last name
+    - **phone**: Optional phone number
+    
+    Returns a JWT access token upon successful registration.
+    """
     # Check if user already exists
     for user in users_db.values():
         if user["email"] == user_data.email:
@@ -193,9 +339,41 @@ async def register_user(user_data: UserCreate):
     )
 
 
-@app.post("/auth/login", response_model=TokenResponse)
+@app.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="User Login",
+    response_description="Login successful with access token",
+    responses={
+        200: {"description": "Login successful"},
+        400: {
+            "description": "Inactive user",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Inactive user"}
+                }
+            }
+        },
+        401: {
+            "description": "Invalid credentials",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Incorrect email or password"}
+                }
+            }
+        }
+    }
+)
 async def login_user(login_data: UserLogin):
-    """Login user and return access token"""
+    """
+    Authenticate user and obtain access token.
+    
+    - **email**: Registered email address
+    - **password**: Account password
+    
+    Returns a JWT access token valid for 30 minutes.
+    """
     # Find user by email
     user = None
     for u in users_db.values():
@@ -239,9 +417,30 @@ async def login_user(login_data: UserLogin):
     )
 
 
-@app.get("/auth/me", response_model=UserResponse)
+@app.get(
+    "/auth/me",
+    response_model=UserResponse,
+    tags=["User Profile"],
+    summary="Get Current User Profile",
+    response_description="Current user's profile information",
+    responses={
+        200: {"description": "Profile retrieved successfully"},
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid authentication credentials"}
+                }
+            }
+        }
+    }
+)
 async def get_current_user_profile(current_user: dict = Depends(get_current_user)):
-    """Get current user profile"""
+    """
+    Get the authenticated user's profile information.
+    
+    Requires a valid JWT Bearer token in the Authorization header.
+    """
     return UserResponse(
         id=current_user["id"],
         email=current_user["email"],
@@ -253,11 +452,36 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
     )
 
 
-@app.put("/auth/me", response_model=UserResponse)
+@app.put(
+    "/auth/me",
+    response_model=UserResponse,
+    tags=["User Profile"],
+    summary="Update User Profile",
+    response_description="Updated user profile",
+    responses={
+        200: {"description": "Profile updated successfully"},
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid authentication credentials"}
+                }
+            }
+        }
+    }
+)
 async def update_user_profile(
     user_update: UserUpdate, current_user: dict = Depends(get_current_user)
 ):
-    """Update current user profile"""
+    """
+    Update the authenticated user's profile.
+    
+    All fields are optional - only provided fields will be updated.
+    
+    - **first_name**: New first name
+    - **last_name**: New last name
+    - **phone**: New phone number
+    """
     user_id = current_user["id"]
 
     # Update user data
@@ -281,11 +505,47 @@ async def update_user_profile(
     )
 
 
-@app.post("/auth/change-password")
+@app.post(
+    "/auth/change-password",
+    tags=["User Profile"],
+    summary="Change Password",
+    response_description="Password change confirmation",
+    responses={
+        200: {
+            "description": "Password changed successfully",
+            "content": {
+                "application/json": {
+                    "example": {"message": "Password changed successfully"}
+                }
+            }
+        },
+        400: {
+            "description": "Incorrect current password",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Incorrect current password"}
+                }
+            }
+        },
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid authentication credentials"}
+                }
+            }
+        }
+    }
+)
 async def change_password(
     password_data: PasswordChange, current_user: dict = Depends(get_current_user)
 ):
-    """Change user password"""
+    """
+    Change the authenticated user's password.
+    
+    - **current_password**: Must match the existing password
+    - **new_password**: New password (minimum 8 characters)
+    """
     user_id = current_user["id"]
 
     # Verify current password
@@ -301,15 +561,72 @@ async def change_password(
     return {"message": "Password changed successfully"}
 
 
-@app.post("/auth/logout")
+@app.post(
+    "/auth/logout",
+    tags=["Authentication"],
+    summary="User Logout",
+    response_description="Logout confirmation",
+    responses={
+        200: {
+            "description": "Logged out successfully",
+            "content": {
+                "application/json": {
+                    "example": {"message": "Logged out successfully"}
+                }
+            }
+        },
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid authentication credentials"}
+                }
+            }
+        }
+    }
+)
 async def logout_user(current_user: dict = Depends(get_current_user)):
-    """Logout user (in a real app, you'd blacklist the token)"""
+    """
+    Logout the current user.
+    
+    In a production environment, this would blacklist the token.
+    """
     return {"message": "Logged out successfully"}
 
 
-@app.get("/auth/users", response_model=List[UserResponse])
+@app.get(
+    "/auth/users",
+    response_model=List[UserResponse],
+    tags=["Admin"],
+    summary="List All Users",
+    response_description="List of all registered users",
+    responses={
+        200: {
+            "description": "Users retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "id": "550e8400-e29b-41d4-a716-446655440000",
+                            "email": "john.doe@example.com",
+                            "first_name": "John",
+                            "last_name": "Doe",
+                            "phone": "+1-555-123-4567",
+                            "created_at": "2024-01-15T10:30:00",
+                            "is_active": True
+                        }
+                    ]
+                }
+            }
+        }
+    }
+)
 async def get_all_users():
-    """Get all users (admin endpoint - in production, add admin authentication)"""
+    """
+    Get all registered users.
+    
+    **Note**: This is an admin endpoint. In production, add admin authentication.
+    """
     users = []
     for user in users_db.values():
         users.append(
@@ -326,9 +643,33 @@ async def get_all_users():
     return users
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    tags=["Health"],
+    summary="Health Check",
+    response_description="Service health status",
+    responses={
+        200: {
+            "description": "Service is healthy",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "healthy",
+                        "service": "auth-service",
+                        "timestamp": "2024-01-15T10:30:00",
+                        "users_count": 5
+                    }
+                }
+            }
+        }
+    }
+)
 async def health_check():
-    """Health check endpoint"""
+    """
+    Health check endpoint for monitoring and CI/CD.
+    
+    Returns service status and user count.
+    """
     return {
         "status": "healthy",
         "service": "auth-service",
@@ -337,10 +678,30 @@ async def health_check():
     }
 
 
-@app.get("/ready")
+@app.get(
+    "/ready",
+    tags=["Health"],
+    summary="Readiness Check",
+    response_description="Service readiness status",
+    responses={
+        200: {
+            "description": "Service is ready to accept traffic",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ready",
+                        "service": "auth-service",
+                        "timestamp": "2024-01-15T10:30:00"
+                    }
+                }
+            }
+        }
+    }
+)
 async def readiness_check():
     """
     Readiness check endpoint for Kubernetes readiness probe.
+    
     Returns 200 when the service is ready to accept traffic.
     """
     return {
